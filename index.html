@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Conway's Game of Life — Flock Visualization</title>
+  <style>
+    :root {
+      --bg:#0b0b0f; --panel:#0f1720; --accent:#7dd3fc; --muted:#94a3b8;
+    }
+    html,body {
+      height:100%; margin:0; overflow:hidden;
+      font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+      background:var(--bg); color:#e6eef6;
+    }
+    .app { position:relative; width:100%; height:100%; }
+    canvas {
+      width:100%; height:100%; display:block;
+      background:#05060a; border-radius:0;
+    }
+
+    /* Floating settings button */
+    .settings-toggle {
+      position:absolute; top:12px; right:12px;
+      background:var(--accent); color:#042027;
+      border:none; border-radius:9999px;
+      padding:10px 14px; font-weight:600; cursor:pointer;
+      box-shadow:0 4px 14px rgba(0,0,0,0.4);
+      z-index:20;
+    }
+
+    /* Dropdown panel */
+    .settings-panel {
+      position:absolute; top:60px; right:12px;
+      width:90%; max-width:340px;
+      background:rgba(15,23,32,0.95);
+      backdrop-filter:blur(10px);
+      border-radius:16px;
+      padding:16px; box-sizing:border-box;
+      box-shadow:0 8px 24px rgba(0,0,0,0.6);
+      display:none; flex-direction:column; gap:14px;
+      z-index:15;
+      max-height:80vh; overflow-y:auto;
+      animation:slideDown 0.25s ease forwards;
+    }
+    .settings-panel.show { display:flex; }
+
+    @keyframes slideDown {
+      from { opacity:0; transform:translateY(-8px); }
+      to { opacity:1; transform:translateY(0); }
+    }
+
+    .row { display:flex; gap:8px; align-items:center; }
+    label { font-size:14px; color:var(--muted); flex:1; }
+    input[type=range] { flex:2; }
+    input[type=number], select {
+      width:80px; padding:6px; border-radius:8px;
+      border:1px solid rgba(255,255,255,0.1);
+      background:transparent; color:inherit;
+    }
+    button.control {
+      flex:1; padding:10px; border-radius:10px;
+      border:0; background:linear-gradient(180deg,var(--accent),#38bdf8);
+      color:#042027; cursor:pointer; font-weight:600;
+    }
+    .footer {
+      font-size:12px; color:var(--muted); margin-top:6px;
+    }
+    .pill {
+      background:rgba(255,255,255,0.08);
+      padding:4px 8px; border-radius:8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <canvas id="c" width="800" height="800"></canvas>
+
+    <!-- Floating button -->
+    <button class="settings-toggle">⚙ Settings</button>
+
+    <!-- Dropdown Settings -->
+    <div class="settings-panel" id="settingsPanel">
+      <div class="row">
+        <button class="control" id="start">Start</button>
+        <button class="control" id="step">Step</button>
+      </div>
+      <div class="row">
+        <button class="control" id="randomize">Randomize</button>
+        <button class="control" id="clear">Clear</button>
+      </div>
+
+      <div class="row"><label>Grid size</label>
+        <input id="gridSize" type="range" min="20" max="200" value="80">
+        <input id="gridSizeNum" type="number" min="20" max="200" value="80">
+      </div>
+      <div class="row"><label>Initial density</label>
+        <input id="density" type="range" min="0" max="0.5" step="0.01" value="0.14">
+        <input id="densityNum" type="number" min="0" max="0.5" step="0.01" value="0.14">
+      </div>
+      <div class="row"><label>Random noise</label>
+        <input id="noise" type="range" min="0" max="0.02" step="0.001" value="0.003">
+        <input id="noiseNum" type="number" min="0" max="0.02" step="0.001" value="0.003">
+      </div>
+      <div class="row"><label>Flock radius</label>
+        <input id="radius" type="range" min="1" max="8" step="1" value="3">
+        <input id="radiusNum" type="number" min="1" max="8" value="3">
+      </div>
+      <div class="row"><label>Max speed</label>
+        <input id="maxSpeed" type="range" min="0.1" max="2" step="0.05" value="0.7">
+        <input id="maxSpeedNum" type="number" min="0.1" max="2" step="0.05" value="0.7">
+      </div>
+      <div class="row"><label>Particle size</label>
+        <input id="pSize" type="range" min="2" max="16" value="6">
+        <input id="pSizeNum" type="number" min="2" max="16" value="6">
+      </div>
+      <div class="row"><label>FPS (visual)</label>
+        <input id="fps" type="range" min="5" max="60" value="30">
+        <input id="fpsNum" type="number" min="5" max="60" value="30">
+      </div>
+      <div class="row"><label>Color mode</label>
+        <select id="colormode">
+          <option value="mono">Monochrome</option>
+          <option value="age">Age → size/alpha</option>
+          <option value="hue">Hue by age</option>
+        </select>
+      </div>
+
+      <div class="row">
+        <button class="control" id="download">Download PNG</button>
+        <button class="control" id="exportFrames">Export 60 Frames</button>
+      </div>
+
+      <div class="footer">
+        <div><span class="pill">Rules:</span> Conway's Game of Life + flock behavior</div>
+        <small>Tap canvas to toggle cells. Adjust settings in this menu. Works in mobile + iframes.</small>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- Toggle settings panel ---
+    const toggleBtn = document.querySelector('.settings-toggle');
+    const panel = document.getElementById('settingsPanel');
+    toggleBtn.addEventListener('click', () => {
+      panel.classList.toggle('show');
+    });
+  // ---- Utility ----
+  function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+
+  // ---- State ----
+  const canvas = document.getElementById('c')
+  const ctx = canvas.getContext('2d')
+
+  let gridSize = 80
+  let density = 0.14
+  let noise = 0.003
+  let radius = 3
+  let maxSpeed = 0.7
+  let baseParticleSize = 6
+  let fps = 30
+  let colorMode = 'mono'
+
+  let grid = []
+  let particles = new Map() // key: i,j -> Particle
+  let running = false
+  let lastTime = 0
+  let accum = 0
+  const W = canvas.width
+  const H = canvas.height
+  let cellW = W / gridSize
+
+  // ---- Particle class ----
+  class Particle {
+    constructor(x,y){
+      this.x = x; this.y = y
+      this.vx = (Math.random()*0.4-0.2)
+      this.vy = (Math.random()*0.4-0.2)
+      this.age = 0
+      this.aliveCell = true
+      this.fade = 1
+      this.fadeCount = 0
+    }
+    step(){
+      const N = gridSize
+      const ix = Math.round(this.x) % N
+      const iy = Math.round(this.y) % N
+      let xs=0, ys=0, count=0
+      for(let dx=-radius;dx<=radius;dx++){
+        for(let dy=-radius;dy<=radius;dy++){
+          if(dx===0 && dy===0) continue
+          const nx = (ix + dx + N) % N
+          const ny = (iy + dy + N) % N
+          if(grid[nx][ny]){ xs += nx + 0.5; ys += ny + 0.5; count++ }
+        }
+      }
+      if(count>0){
+        let avgx = xs/count, avgy = ys/count
+        let sx = avgx - this.x, sy = avgy - this.y
+        let mag = Math.hypot(sx,sy)+1e-6
+        sx/=mag; sy/=mag
+        this.vx += 0.15*sx + (Math.random()*0.1-0.05)
+        this.vy += 0.15*sy + (Math.random()*0.1-0.05)
+      }else{
+        this.vx += (Math.random()*0.06-0.03)
+        this.vy += (Math.random()*0.06-0.03)
+      }
+      let sp = Math.hypot(this.vx,this.vy)
+      if(sp>maxSpeed){ this.vx *= maxSpeed/sp; this.vy *= maxSpeed/sp }
+      this.x = (this.x + this.vx + N) % N
+      this.y = (this.y + this.vy + N) % N
+      this.age++
+    }
+  }
+
+  // ---- Grid functions ----
+  function makeGrid(n,d){
+    gridSize = n
+    cellW = W / gridSize
+    grid = new Array(gridSize)
+    for(let i=0;i<gridSize;i++){
+      grid[i]=new Array(gridSize)
+      for(let j=0;j<gridSize;j++) grid[i][j]=Math.random()<d?1:0
+    }
+    particles.clear()
+    for(let i=0;i<gridSize;i++) for(let j=0;j<gridSize;j++) if(grid[i][j]){
+      const p = new Particle(i+0.5 + (Math.random()*0.4-0.2), j+0.5 + (Math.random()*0.4-0.2))
+      particles.set(i+','+j,p)
+    }
+  }
+
+  function conwayStep(){
+    const N = gridSize
+    // compute neighbors
+    const neighbors = new Array(N)
+    for(let i=0;i<N;i++){ neighbors[i]=new Array(N).fill(0) }
+    for(let i=0;i<N;i++) for(let j=0;j<N;j++) if(grid[i][j]){
+      for(let di=-1;di<=1;di++) for(let dj=-1;dj<=1;dj++) if(!(di===0&&dj===0)){
+        const ni=(i+di+N)%N, nj=(j+dj+N)%N
+        neighbors[ni][nj]++
+      }
+    }
+    const newGrid = new Array(N)
+    for(let i=0;i<N;i++){
+      newGrid[i]=new Array(N)
+      for(let j=0;j<N;j++){
+        const n = neighbors[i][j]
+        if(grid[i][j]) newGrid[i][j] = (n===2||n===3)?1:0
+        else newGrid[i][j] = (n===3)?1:0
+        // random noise births/deaths
+        if(Math.random()<noise) newGrid[i][j]=1
+        if(Math.random()>(1-noise)) newGrid[i][j]=0
+      }
+    }
+    grid = newGrid
+  }
+
+  // ---- Visual / update loop ----
+  function stepSimulation(){
+    conwayStep()
+    // update particles map
+    const N = gridSize
+    const newParticles = new Map()
+    for(const [key,p] of particles.entries()){
+      const [i,j] = key.split(',').map(x=>parseInt(x))
+      if(grid[i][j]){
+        p.aliveCell=true; p.fade=1; p.fadeCount=0; p.step()
+        const ni = Math.floor(p.x)%N, nj = Math.floor(p.y)%N
+        const newKey = ni+','+nj
+        if(newParticles.has(newKey)){
+          if(p.age > newParticles.get(newKey).age) newParticles.set(newKey,p)
+        } else newParticles.set(newKey,p)
+      } else {
+        if(p.fadeCount < 10){
+          p.aliveCell=false; p.fadeCount++; p.fade = Math.max(0,1 - p.fadeCount/10); p.step()
+          const ni = Math.floor(p.x)%N, nj = Math.floor(p.y)%N
+          const newKey = ni+','+nj
+          if(newParticles.has(newKey)){
+            if(p.age > newParticles.get(newKey).age) newParticles.set(newKey,p)
+          } else newParticles.set(newKey,p)
+        }
+      }
+    }
+    // spawn particles for births
+    for(let i=0;i<N;i++) for(let j=0;j<N;j++) if(grid[i][j] && !newParticles.has(i+','+j)){
+      newParticles.set(i+','+j, new Particle(i+0.5 + (Math.random()*0.4-0.2), j+0.5 + (Math.random()*0.4-0.2)))
+    }
+    particles = newParticles
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H)
+    // optional grid or background texture omitted for speed
+    // draw particles
+    for(const p of particles.values()){
+      const sx = p.x * cellW
+      const sy = p.y * cellW
+      const age = p.age
+      let alpha = p.aliveCell ? 1 : p.fade
+      let size = baseParticleSize + Math.min(40, age*0.2)
+      if(colorMode==='mono'){
+        ctx.fillStyle = `rgba(255,255,255,${alpha})`
+      }else if(colorMode==='age'){
+        const g = Math.min(220, 80 + Math.floor(age*2))
+        ctx.fillStyle = `rgba(${g},${200},${240},${alpha})`
+      }else if(colorMode==='hue'){
+        const h = Math.min(360, age*6 % 360)
+        ctx.fillStyle = `hsla(${h},80%,65%,${alpha})`
+      }
+      ctx.beginPath()
+      ctx.arc(sx, sy, size * (cellW/12), 0, Math.PI*2)
+      ctx.fill()
+    }
+  }
+
+  // ---- Animation frame control ----
+  function loop(ts){
+    if(!lastTime) lastTime = ts
+    const dt = ts - lastTime
+    lastTime = ts
+    accum += dt
+    const interval = 1000 / fps
+    if(accum >= interval){
+      accum -= interval
+      stepSimulation()
+      draw()
+    }
+    if(running) requestAnimationFrame(loop)
+  }
+
+  // ---- DOM wiring ----
+  function hookup(){
+    const startBtn = document.getElementById('start')
+    const stepBtn = document.getElementById('step')
+    const randBtn = document.getElementById('randomize')
+    const clearBtn = document.getElementById('clear')
+    const downloadBtn = document.getElementById('download')
+    const exportBtn = document.getElementById('exportFrames')
+
+    const gridSizeRange = document.getElementById('gridSize')
+    const gridSizeNum = document.getElementById('gridSizeNum')
+    const densityRange = document.getElementById('density')
+    const densityNum = document.getElementById('densityNum')
+    const noiseRange = document.getElementById('noise')
+    const noiseNum = document.getElementById('noiseNum')
+    const radiusRange = document.getElementById('radius')
+    const radiusNum = document.getElementById('radiusNum')
+    const maxSpeedRange = document.getElementById('maxSpeed')
+    const maxSpeedNum = document.getElementById('maxSpeedNum')
+    const pSizeRange = document.getElementById('pSize')
+    const pSizeNum = document.getElementById('pSizeNum')
+    const fpsRange = document.getElementById('fps')
+    const fpsNum = document.getElementById('fpsNum')
+    const colorModeSel = document.getElementById('colormode')
+
+    // sync ranges/number inputs
+    function sync(a,b,cb){ a.addEventListener('input',()=>{ b.value=a.value; cb && cb(a.value) })
+      b.addEventListener('input',()=>{ a.value=b.value; cb && cb(b.value) }) }
+    sync(gridSizeRange, gridSizeNum, v=>{ gridSize=parseInt(v); makeGrid(gridSize, density) })
+    sync(densityRange, densityNum, v=>{ density=parseFloat(v) })
+    sync(noiseRange, noiseNum, v=>{ noise=parseFloat(v) })
+    sync(radiusRange, radiusNum, v=>{ radius=parseInt(v) })
+    sync(maxSpeedRange, maxSpeedNum, v=>{ maxSpeed=parseFloat(v) })
+    sync(pSizeRange, pSizeNum, v=>{ baseParticleSize=parseFloat(v) })
+    sync(fpsRange, fpsNum, v=>{ fps=parseInt(v) })
+
+    startBtn.addEventListener('click', ()=>{
+      running = !running
+      startBtn.textContent = running ? 'Pause' : 'Start'
+      if(running) { lastTime = 0; requestAnimationFrame(loop) }
+    })
+    stepBtn.addEventListener('click', ()=>{ stepSimulation(); draw() })
+    randBtn.addEventListener('click', ()=>{ makeGrid(gridSize,density); draw() })
+    clearBtn.addEventListener('click', ()=>{ grid = new Array(gridSize).fill(0).map(()=>new Array(gridSize).fill(0)); particles.clear(); draw() })
+
+    downloadBtn.addEventListener('click', ()=>{
+      const link = document.createElement('a')
+      link.download = 'game_of_life_flock.png'
+      link.href = canvas.toDataURL('image/png')
+      link.click()
+    })
+
+    exportBtn.addEventListener('click', async ()=>{
+      const frames = 60
+      const zipName = 'gol_frames.zip'
+      // naive approach: capture frames and download as separate PNGs in a zip would require JSZip.
+      alert('This demo exports frames by saving them one-by-one as PNG. For a zip export, add JSZip to the page.\n\nWe will save 60 frames by stepping then saving each as PNG in-browser (prompts normal file-save per frame).')
+      for(let f=0; f<frames; f++){
+        stepSimulation(); draw()
+        const link = document.createElement('a')
+        link.href = canvas.toDataURL('image/png')
+        link.download = `frame_${f.toString().padStart(3,'0')}.png`
+        link.click()
+        await new Promise(r=>setTimeout(r,40))
+      }
+    })
+
+    // canvas click toggles underlying cell
+    canvas.addEventListener('click', (ev)=>{
+      const rect = canvas.getBoundingClientRect()
+      const x = ev.clientX - rect.left
+      const y = ev.clientY - rect.top
+      const i = Math.floor(x / cellW)
+      const j = Math.floor(y / cellW)
+      if(i>=0 && i<gridSize && j>=0 && j<gridSize){ grid[i][j] = grid[i][j]?0:1; if(grid[i][j]) particles.set(i+','+j,new Particle(i+0.5,j+0.5)); else particles.delete(i+','+j); draw() }
+    })
+
+    colorModeSel.addEventListener('change', ()=>{ colorMode = colorModeSel.value; draw() })
+  }
+
+  // ---- Initialize and draw first frame ----
+  makeGrid(gridSize, density)
+  hookup()
+  draw()
+
+  // fit canvas to container on resize
+  window.addEventListener('resize', ()=>{
+    const rect = canvas.getBoundingClientRect()
+  })
+    // keep all your existing game logic intact
+    // (paste your full <script> content here from your original code)
+  </script>
+</body>
+</html>
