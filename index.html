@@ -1,0 +1,850 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Conway's Game of Life — Chaos Mode (C3) + Surprise Pack</title>
+<style>
+  :root {
+    --bg:#0b0b0f; --panel:#0f1720; --accent:#ff6bd6; --muted:#94a3b8;
+  }
+  html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:#e6eef6;overflow:hidden}
+  .app{position:relative;width:100%;height:100%}
+  .stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+  canvas{display:block;width:100%;height:100%;background:#05060a}
+  /* settings toggle */
+  .settings-toggle{
+    position:absolute;right:14px;top:14px;background:var(--accent);color:#041018;border:0;border-radius:999px;padding:10px 14px;font-weight:700;cursor:pointer;z-index:40;box-shadow:0 8px 30px rgba(255,107,214,0.12)
+  }
+  /* panel */
+  .settings-panel{
+    position:absolute;top:64px;right:14px;width:92%;max-width:420px;background:rgba(12,18,24,0.9);backdrop-filter: blur(8px);border-radius:12px;padding:12px;box-shadow:0 12px 40px rgba(0,0,0,.6);display:none;flex-direction:column;gap:10px;z-index:40;max-height:78vh;overflow:auto;
+  }
+  .settings-panel.show{display:flex;animation:slideIn .22s ease}
+  @keyframes slideIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+  .row{display:flex;gap:8px;align-items:center}
+  label{font-size:13px;color:var(--muted);min-width:120px}
+  input[type=range]{flex:1}
+  input[type=number],select{width:92px;padding:6px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
+  .control{padding:10px;border-radius:10px;border:0;background:linear-gradient(180deg,var(--accent),#ff3fb5);color:#041018;cursor:pointer;font-weight:700;flex:1}
+  .controls{display:flex;gap:8px}
+  .footer{font-size:12px;color:var(--muted);margin-top:6px}
+  .pill{background:rgba(255,255,255,0.03);padding:6px 8px;border-radius:8px;display:inline-block}
+  .small{font-size:12px;color:var(--muted)}
+  .toggleRow {justify-content:space-between; align-items:center;}
+  .checkbox {width:18px;height:18px;}
+  .touchOverlay {
+    position:absolute; left:0; top:0; pointer-events:none; z-index:30;
+  }
+</style>
+</head>
+<body>
+  <div class="app">
+    <div class="stage">
+      <canvas id="c" width="800" height="800" aria-label="Conway Game of Life"></canvas>
+      <canvas id="overlay" class="touchOverlay" aria-hidden="true"></canvas>
+    </div>
+
+    <button class="settings-toggle" id="settingsBtn" aria-expanded="false">⚙</button>
+
+    <div class="settings-panel" id="settingsPanel" role="dialog" aria-modal="false">
+      <div class="controls">
+        <button id="start" class="control">Start</button>
+        <button id="step" class="control">Step</button>
+        <button id="randomize" class="control">Randomize</button>
+        <button id="clear" class="control">Clear</button>
+      </div>
+
+      <div class="row"><label>Grid size</label><input id="gridSize" type="range" min="30" max="180" value="90"><input id="gridSizeNum" type="number" min="30" max="180" value="90"></div>
+      <div class="row"><label>Initial density</label><input id="density" type="range" min="0" max="0.5" step="0.01" value="0.18"><input id="densityNum" type="number" min="0" max="0.5" step="0.01" value="0.18"></div>
+      <div class="row"><label>Random noise</label><input id="noise" type="range" min="0" max="0.06" step="0.001" value="0.006"><input id="noiseNum" type="number" min="0" max="0.06" step="0.001" value="0.006"></div>
+      <div class="row"><label>Flock radius</label><input id="radius" type="range" min="1" max="8" step="1" value="3"><input id="radiusNum" type="number" min="1" max="8" value="3"></div>
+      <div class="row"><label>Max speed</label><input id="maxSpeed" type="range" min="0.1" max="2" step="0.05" value="0.7"><input id="maxSpeedNum" type="number" min="0.1" max="2" step="0.05" value="0.7"></div>
+      <div class="row"><label>Particle size</label><input id="pSize" type="range" min="2" max="18" value="6"><input id="pSizeNum" type="number" min="2" max="18" value="6"></div>
+      <div class="row"><label>FPS (visual)</label><input id="fps" type="range" min="5" max="60" value="30"><input id="fpsNum" type="number" min="5" max="60" value="30"></div>
+
+      <div class="row"><label>Color mode</label>
+        <select id="colormode">
+          <option value="psy">Chaos (psychedelic)</option>
+          <option value="hue">Hue by age</option>
+          <option value="mono">Monochrome</option>
+        </select>
+      </div>
+
+      <div class="row"><label>Chaos Mode</label>
+        <select id="chaosMode"><option value="on" selected>On (C3)</option><option value="off">Off</option></select>
+      </div>
+      <div class="row"><label>Chaos intensity</label><input id="chaosIntensity" type="range" min="0" max="1" step="0.01" value="1"><input id="chaosIntensityNum" type="number" min="0" max="1" step="0.01" value="1"></div>
+      <div class="row"><label>Show overlays</label>
+        <select id="showOverlay"><option value="on" selected>On</option><option value="off">Off</option></select>
+      </div>
+
+      <hr style="opacity:0.06;border:0;height:1px;margin:6px 0">
+
+      <div class="row toggleRow"><label>Sparks</label><input id="toggleSparks" class="checkbox" type="checkbox" checked></div>
+      <div class="row toggleRow"><label>Six-Degrees Networking</label><input id="toggleNetwork" class="checkbox" type="checkbox" checked></div>
+      <div class="row toggleRow"><label>Species (mutants)</label><input id="toggleSpecies" class="checkbox" type="checkbox" checked></div>
+      <div class="row toggleRow"><label>Memory Echo</label><input id="toggleMemory" class="checkbox" type="checkbox"></div>
+
+      <div class="row"><button id="download" class="control">Download PNG</button><button id="exportFrames" class="control">Export 60 Frames</button></div>
+
+      <div class="footer">
+        <div><span class="pill">Rules:</span> Conway's Game of Life on a torus + flock behavior + external solar-wind events (Chaos Mode C3)</div>
+        <div class="small">Tap/drag canvas to repel. Toggle Sparks/Networking/Species/Memory Echo. Chaos Mode introduces unpredictable weather events that push, mutate, and create emergent patterns.</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* =========================
+  C3 Chaos Mode — Surprise Pack
+  - Adds: touch-repel, sparks, small-world friends, species, memory echoes
+  - All toggles are in settings panel
+  ========================= */
+
+const canvas = document.getElementById('c');
+const overlay = document.getElementById('overlay');
+const octx = overlay.getContext('2d');
+const ctx = canvas.getContext('2d', { alpha: true });
+const DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+
+/* -------------------------
+   Core parameters (defaults)
+   ------------------------- */
+let gridSize = 90;
+let density = 0.18;
+let noise = 0.006;
+let radius = 3;
+let maxSpeed = 0.7;
+let baseParticleSize = 6;
+let fps = 30;
+let colorMode = 'psy';
+let chaosOn = true;
+let chaosIntensity = 1.0;
+let showOverlay = true;
+
+let running = false, lastTime = 0, accum = 0;
+let grid = null;             // Uint8Array (flat) 0/1
+let gridNext = null;
+let species = null;         // Uint8Array per cell: 0 normal, 1 mutant, 2 vampire (simple)
+let particles = new Map();   // key 'i,j' -> Particle
+let friends = new Map();     // small-world friends: key -> array of indices
+let snapshots = [];          // memory echo snapshots
+let cellW = 8;               // will be computed
+let width = 800, height = 800;
+
+let sparksEnabled = true;
+let networkEnabled = true;
+let speciesEnabled = true;
+let memoryEnabled = false;
+
+/* overlay canvas sizing */
+function resizeOverlay(){
+  const rect = canvas.getBoundingClientRect();
+  overlay.width = rect.width;
+  overlay.height = rect.height;
+  overlay.style.width = rect.width + 'px';
+  overlay.style.height = rect.height + 'px';
+}
+function resizeCanvas() {
+  const rect = canvas.getBoundingClientRect();
+  width = Math.max(200, Math.floor(rect.width));
+  height = Math.max(200, Math.floor(rect.height));
+  canvas.width = Math.floor(width * DPR);
+  canvas.height = Math.floor(height * DPR);
+  canvas.style.width = width + 'px';
+  canvas.style.height = height + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  cellW = width / gridSize;
+  resizeOverlay();
+}
+window.addEventListener('resize', () => { resizeCanvas(); draw(); });
+resizeCanvas();
+
+/* -------------------------
+   Utilities / noise (unchanged)
+   ------------------------- */
+function createNoiseSeed(seed){ let s = seed >>> 0; return function(){ s = (1664525 * s + 1013904223) >>> 0; return s / 4294967296; }; }
+function buildNoiseGrid(w, h, seed=1337){ const rand = createNoiseSeed(seed); const g = new Float32Array((w+1)*(h+1)); for(let y=0;y<=h;y++){ for(let x=0;x<=w;x++){ g[y*(w+1)+x] = rand(); } } return { w, h, g }; }
+function smoothstep(t){ return t * t * (3 - 2 * t); }
+function sampleNoise(noiseGrid, u, v){
+  const W = noiseGrid.w, H = noiseGrid.h; const x = (u * W) % W; const y = (v * H) % H; const xi = Math.floor(x), yi = Math.floor(y);
+  const xf = x - xi, yf = y - yi;
+  const i00 = yi*(W+1)+xi, i10 = yi*(W+1)+((xi+1)%(W+1));
+  const i01 = ((yi+1)%(H+1))*(W+1)+xi, i11 = ((yi+1)%(H+1))*(W+1)+((xi+1)%(W+1));
+  const v00 = noiseGrid.g[i00], v10 = noiseGrid.g[i10], v01 = noiseGrid.g[i01], v11 = noiseGrid.g[i11];
+  const ux = smoothstep(xf), uy = smoothstep(yf);
+  const a = v00*(1-ux) + v10*ux;
+  const b = v01*(1-ux) + v11*ux;
+  return a*(1-uy) + b*uy;
+}
+let noiseLayer1 = buildNoiseGrid(96,96, Date.now()%65536);
+let noiseLayer2 = buildNoiseGrid(48,48, (Date.now()+12345)%65536);
+let noiseTime = 0;
+
+/* -------------------------
+   SolarWind events (unchanged)
+   ------------------------- */
+class SolarWind {
+  constructor() {
+    const N = gridSize;
+    this.x = Math.random()*N;
+    this.y = Math.random()*N;
+    const ang = Math.random() * Math.PI * 2;
+    const sp = 0.15 + Math.random()*0.6;
+    this.vx = Math.cos(ang) * sp;
+    this.vy = Math.sin(ang) * sp;
+    this.strength = 0.6 + Math.random()*1.6;
+    this.radius = 8 + Math.random()*40;
+    this.life = 200 + Math.floor(Math.random()*400);
+    this.age = 0;
+    this.hue = Math.floor(Math.random()*360);
+  }
+  step(){
+    const N = gridSize;
+    this.x = (this.x + this.vx + N) % N;
+    this.y = (this.y + this.vy + N) % N;
+    this.age++; this.life--;
+  }
+  alive(){ return this.life>0; }
+}
+let solarEvents = [];
+let nextEventTimer = 0;
+
+/* -------------------------
+   Grid helpers & friends
+   ------------------------- */
+function idx(i,j){ return i + j*gridSize; }
+function allocGrid(n){
+  grid = new Uint8Array(n * n);
+  gridNext = new Uint8Array(n * n);
+  species = new Uint8Array(n * n);
+  friends = new Map();
+}
+function buildFriends(linkCount = 2){
+  friends.clear();
+  const N = gridSize;
+  for(let j=0;j<N;j++){
+    for(let i=0;i<N;i++){
+      const key = idx(i,j);
+      const arr = [];
+      for(let k=0;k<linkCount;k++){
+        const fi = Math.floor(Math.random()*N), fj = Math.floor(Math.random()*N);
+        arr.push(idx(fi,fj));
+      }
+      friends.set(key, arr);
+    }
+  }
+}
+function randomizeGrid(d){
+  for(let j=0;j<gridSize;j++){
+    for(let i=0;i<gridSize;i++){
+      grid[idx(i,j)] = (Math.random() < d) ? 1 : 0;
+      // species assignment: mostly 0, occasional mutant/vampire based on probability
+      species[idx(i,j)] = (Math.random() < 0.01 && speciesEnabled) ? (Math.random() < 0.7 ? 1 : 2) : 0;
+    }
+  }
+  particles.clear();
+  for(let j=0;j<gridSize;j++){
+    for(let i=0;i<gridSize;i++){
+      if(grid[idx(i,j)]) particles.set(i+','+j, new Particle(i+0.5 + (Math.random()*0.4-0.2), j+0.5 + (Math.random()*0.4-0.2)));
+    }
+  }
+  buildFriends(2);
+  snapshots = []; // reset memory
+}
+function clearGrid(){
+  grid.fill(0);
+  species.fill(0);
+  particles.clear();
+  snapshots = [];
+  buildFriends(2);
+}
+
+/* -------------------------
+   Particle class w/ sparks
+   ------------------------- */
+class Particle {
+  constructor(x,y){
+    this.x = x; this.y = y;
+    this.vx = (Math.random()*0.4-0.2);
+    this.vy = (Math.random()*0.4-0.2);
+    this.age = 0;
+    this.aliveCell = true;
+    this.fade = 1;
+    this.fadeCount = 0;
+    this.spark = 0; // visual spark intensity (0..1)
+  }
+  step(){
+    const N = gridSize;
+    const ix = (Math.round(this.x) + N) % N;
+    const iy = (Math.round(this.y) + N) % N;
+    let xs=0, ys=0, count=0;
+    for(let dx=-radius; dx<=radius; dx++){
+      for(let dy=-radius; dy<=radius; dy++){
+        if(dx===0 && dy===0) continue;
+        const nx = (ix + dx + N) % N;
+        const ny = (iy + dy + N) % N;
+        if(grid[idx(nx,ny)]){ xs += nx + 0.5; ys += ny + 0.5; count++ }
+      }
+    }
+    if(count>0){
+      let avgx = xs/count, avgy = ys/count;
+      let sx = avgx - this.x, sy = avgy - this.y;
+      let mag = Math.hypot(sx,sy)+1e-6;
+      sx/=mag; sy/=mag;
+      this.vx += 0.15*sx + (Math.random()*0.1-0.05);
+      this.vy += 0.15*sy + (Math.random()*0.1-0.05);
+    } else {
+      this.vx += (Math.random()*0.06-0.03);
+      this.vy += (Math.random()*0.06-0.03);
+    }
+
+    // solar events influence
+    if(chaosOn && solarEvents.length){
+      for(const ev of solarEvents){
+        const dx = (this.x - ev.x);
+        const dy = (this.y - ev.y);
+        const d2 = dx*dx + dy*dy;
+        const r2 = (ev.radius*ev.radius);
+        if(d2 < r2){
+          const f = (1 - Math.sqrt(d2)/ev.radius) * ev.strength * 0.6 * chaosIntensity;
+          this.vx += dx * 0.02 * f;
+          this.vy += dy * 0.02 * f;
+          if(sparksEnabled) this.spark = Math.min(1, this.spark + 0.35 * f);
+        }
+      }
+    }
+
+    // decay spark
+    this.spark *= 0.92;
+
+    let sp = Math.hypot(this.vx, this.vy);
+    if(sp > maxSpeed){ this.vx *= maxSpeed/sp; this.vy *= maxSpeed/sp; }
+    this.x = (this.x + this.vx + N) % N;
+    this.y = (this.y + this.vy + N) % N;
+    this.age++;
+  }
+}
+
+/* -------------------------
+   Conway step with network, species, and mutation cascades
+   ------------------------- */
+function conwayStep(){
+  const N = gridSize;
+  const neighbors = new Uint8Array(N * N);
+
+  for(let j=0;j<N;j++){
+    for(let i=0;i<N;i++){
+      if(grid[idx(i,j)]){
+        for(let di=-1; di<=1; di++){
+          for(let dj=-1; dj<=1; dj++){
+            if(di===0 && dj===0) continue;
+            const ni = (i + di + N) % N;
+            const nj = (j + dj + N) % N;
+            neighbors[idx(ni,nj)]++;
+          }
+        }
+      }
+    }
+  }
+
+  // spawn solar events
+  if(chaosOn && nextEventTimer <= 0){
+    const spawnChance = 0.03 * chaosIntensity + 0.01 * (noise*100);
+    if(Math.random() < spawnChance) solarEvents.push(new SolarWind());
+    nextEventTimer = 8 + Math.floor(Math.random()*40);
+  } else nextEventTimer--;
+
+  // step events
+  for(let k=solarEvents.length-1;k>=0;k--){
+    solarEvents[k].step();
+    if(!solarEvents[k].alive()) solarEvents.splice(k,1);
+  }
+
+  // occasionally inject mutation cascade
+  const cascadeRoll = Math.random();
+  const doCascade = (chaosOn && cascadeRoll < 0.002 * chaosIntensity);
+
+  // compute new grid
+  for(let j=0;j<N;j++){
+    for(let i=0;i<N;i++){
+      const index = idx(i,j);
+      const n = neighbors[index];
+      let val = 0;
+      const aliveNow = !!grid[index];
+      let sp = species[index];
+
+      // base rules, with slight species modifications
+      if(aliveNow){
+        // mutants survive easier; vampires less so
+        if(sp === 1 && speciesEnabled){
+          // mutants are resilient
+          val = (n >= 1 && n <= 4) ? 1 : 0;
+        } else if(sp === 2 && speciesEnabled){
+          // vampires sometimes convert neighbors (later)
+          val = (n === 2 || n === 3) ? 1 : 0;
+        } else {
+          val = (n === 2 || n === 3) ? 1 : 0;
+        }
+      } else {
+        // birth rules: classic + species biases
+        val = (n === 3) ? 1 : 0;
+      }
+
+      // noise births/deaths
+      const noiseProb = Math.min(0.2, noise * (1 + chaosIntensity*1.8));
+      if(Math.random() < noiseProb) val = 1;
+      if(Math.random() < noiseProb * 0.45) val = 0;
+
+      // solar event mutation influence
+      if(chaosOn && solarEvents.length){
+        for(const ev of solarEvents){
+          // compute wrapped distance
+          let dx = i - ev.x; let dy = j - ev.y;
+          const wrapDx = Math.min(Math.abs(dx), Math.abs(dx + N), Math.abs(dx - N));
+          const wrapDy = Math.min(Math.abs(dy), Math.abs(dy + N), Math.abs(dy - N));
+          const d2 = wrapDx*wrapDx + wrapDy*wrapDy;
+          if(d2 < ev.radius*ev.radius){
+            const influence = (1 - Math.sqrt(d2)/ev.radius) * ev.strength * chaosIntensity;
+            if(Math.random() < 0.04 * influence) val = 1;
+            if(Math.random() < 0.003 * influence) val = val ? 0 : 1;
+            // solar events can mutate species
+            if(speciesEnabled && Math.random() < 0.02 * influence){
+              species[index] = Math.random() < 0.7 ? 1 : 2;
+            }
+          }
+        }
+      }
+
+      // six-degrees network bias
+      if(networkEnabled && friends.size){
+        const fr = friends.get(index);
+        if(fr){
+          for(const fidx of fr){
+            if(grid[fidx] && Math.random() < 0.14 * chaosIntensity){
+              val = 1;
+              // possible species influence from friend
+              if(speciesEnabled && Math.random() < 0.12) species[index] = species[fidx] || 0;
+            }
+          }
+        }
+      }
+
+      // mutation cascade: flip pattern nearby
+      if(doCascade){
+        if(Math.random() < 0.02){
+          // flip this cell
+          val = val ? 0 : 1;
+          // random local burst
+          for(let dj=-2; dj<=2; dj++){
+            for(let di=-2; di<=2; di++){
+              const xi = (i+di+N)%N, yj = (j+dj+N)%N;
+              if(Math.random() < 0.18) gridNext[idx(xi,yj)] = 1;
+            }
+          }
+        }
+      }
+
+      gridNext[index] = val;
+    }
+  }
+
+  // swap buffers
+  const tmp = grid; grid = gridNext; gridNext = tmp;
+
+  // record snapshot occasionally for memory echo
+  if(memoryEnabled && Math.random() < 0.002){
+    const copy = new Uint8Array(grid);
+    snapshots.push(copy);
+    if(snapshots.length > 12) snapshots.shift();
+  }
+
+  // memory echo re-injection sometimes
+  if(memoryEnabled && snapshots.length && Math.random() < 0.001 * chaosIntensity){
+    const snap = snapshots[Math.floor(Math.random()*snapshots.length)];
+    // inject a small patch of the snapshot
+    const Ncells = Math.max(6, Math.floor(12 * chaosIntensity));
+    for(let k=0;k<Ncells;k++){
+      const p = Math.floor(Math.random() * snap.length);
+      grid[p] = snap[p];
+      // occasionally set species from snapshot (if any)
+      if(speciesEnabled && snap[p]) species[p] = (Math.random() < 0.5) ? 1 : species[p];
+    }
+  }
+}
+
+/* -------------------------
+   Drawing: background + overlay + particles + touches
+   ------------------------- */
+function draw(){
+  const w = width, h = height;
+  ctx.clearRect(0,0,w,h);
+
+  noiseTime += 0.001 + 0.001 * chaosIntensity;
+  const bgW = Math.max(120, Math.min(320, Math.floor(w/3)));
+  const bgH = Math.max(120, Math.min(320, Math.floor(h/3)));
+  const img = ctx.createImageData(bgW, bgH);
+  let p = 0;
+  for(let y=0;y<bgH;y++){
+    for(let x=0;x<bgW;x++){
+      const u = (x/bgW + noiseTime*0.02) % 1;
+      const v = (y/bgH + noiseTime*0.015) % 1;
+      const n1 = sampleNoise(noiseLayer1, u, v);
+      const n2 = sampleNoise(noiseLayer2, u*1.5, v*1.2);
+      let n = Math.pow(n1*0.6 + n2*0.4, 0.6);
+      let glow = 0;
+      if(chaosOn){
+        const gx = (x/bgW) * gridSize;
+        const gy = (y/bgH) * gridSize;
+        for(const ev of solarEvents){
+          const dx = gx - ev.x; const dy = gy - ev.y;
+          const d2 = dx*dx + dy*dy;
+          if(d2 < (ev.radius*ev.radius)){
+            glow += (1 - Math.sqrt(d2)/ev.radius) * (0.35*ev.strength) * chaosIntensity;
+          }
+        }
+      }
+      n = clamp(n + glow*0.8, 0, 1);
+      let hueBase = (noiseTime*40 + (n*360*1.3)) % 360;
+      if(colorMode === 'hue') hueBase = (n*360) % 360;
+      else if(colorMode === 'mono') hueBase = 210;
+      const sat = clamp(60 + n*60 + chaosIntensity*20, 25, 100);
+      const light = clamp(10 + n*60 + glow*30, 6, 84);
+      const col = hslToRgb(hueBase, sat/100, light/100);
+      img.data[p++] = Math.round(col.r * 255);
+      img.data[p++] = Math.round(col.g * 255);
+      img.data[p++] = Math.round(col.b * 255);
+      img.data[p++] = clamp(100 + Math.round(glow*120), 60, 255);
+    }
+  }
+  const off = document.createElement('canvas');
+  off.width = bgW; off.height = bgH;
+  const offCtx = off.getContext('2d');
+  offCtx.putImageData(img, 0, 0);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = 0.9;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(off, 0, 0, w, h);
+  ctx.restore();
+
+  // overlay solar events
+  if(showOverlay && solarEvents.length){
+    for(const ev of solarEvents){
+      const gx = (ev.x / gridSize) * w;
+      const gy = (ev.y / gridSize) * h;
+      const r = (ev.radius / gridSize) * Math.max(w,h);
+      const grad = ctx.createRadialGradient(gx, gy, 0, gx, gy, r);
+      const hue = ev.hue;
+      grad.addColorStop(0, `hsla(${hue},100%,70%,${0.18 * chaosIntensity})`);
+      grad.addColorStop(0.4, `hsla(${(hue+40)%360},90%,55%,${0.08 * chaosIntensity})`);
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(gx, gy, r, 0, Math.PI*2); ctx.fill();
+    }
+  }
+
+  // draw particles
+  const cellWpx = w / gridSize;
+  for(const pval of particles.values()){
+    const sx = pval.x * cellWpx;
+    const sy = pval.y * cellWpx;
+    const age = pval.age;
+    let alpha = pval.aliveCell ? 1 : Math.max(0.08, pval.fade * 0.6);
+    let size = baseParticleSize + Math.min(40, age * 0.2);
+    // spark visual boost
+    const sparkBoost = (sparksEnabled) ? pval.spark * 1.6 : 0;
+    if(colorMode === 'psy'){
+      const h = ((age * 6) + (noiseTime*180) + sparkBoost*180) % 360;
+      ctx.fillStyle = `hsla(${h}, 92%, ${50 + (Math.sin(age*0.08)*6) + sparkBoost*6}%, ${alpha})`;
+    } else if(colorMode === 'hue'){
+      const h = (age * 6 + sparkBoost*50) % 360;
+      ctx.fillStyle = `hsla(${h}, 76%, ${60 + sparkBoost*8}%, ${alpha})`;
+    } else {
+      ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+    }
+    ctx.beginPath();
+    ctx.arc(sx, sy, Math.max(0.8, (size + sparkBoost*6) * (cellWpx/14)), 0, Math.PI*2);
+    ctx.fill();
+
+    // trail when spark active
+    if(sparksEnabled && pval.spark > 0.08){
+      ctx.globalAlpha = Math.min(0.4, pval.spark*0.45);
+      ctx.beginPath();
+      ctx.arc(sx - pval.vx * 6, sy - pval.vy * 6, Math.max(0.4, (size*0.6) * (cellWpx/18)), 0, Math.PI*2);
+      ctx.fill();
+      ctx.globalAlpha = 1.0;
+    }
+  }
+
+  // subtle vignette
+  ctx.save();
+  ctx.globalCompositeOperation = 'multiply';
+  const vg = ctx.createRadialGradient(w/2, h/2, Math.max(w,h)*0.2, w/2, h/2, Math.max(w,h)*0.65);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.28)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0,0,w,h);
+  ctx.restore();
+}
+
+/* -------------------------
+   HSL -> RGB helper
+   ------------------------- */
+function hslToRgb(h, s, l){
+  h = h / 360;
+  let r, g, b;
+  if (s === 0) r = g = b = l;
+  else {
+    const hue2rgb = (p, q, t) => {
+      if(t < 0) t += 1; if(t > 1) t -= 1;
+      if(t < 1/6) return p + (q - p) * 6 * t;
+      if(t < 1/2) return q;
+      if(t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+      return p;
+    };
+    const q = l < 0.5 ? l * (1 + s) : (l + s - l * s);
+    const p = 2 * l - q;
+    r = hue2rgb(p, q, h + 1/3);
+    g = hue2rgb(p, q, h);
+    b = hue2rgb(p, q, h - 1/3);
+  }
+  return { r, g, b };
+}
+
+/* -------------------------
+   Simulation stepping & particle update
+   ------------------------- */
+function stepSimulation(){
+  conwayStep();
+  const N = gridSize;
+  const newParticles = new Map();
+  for(const [key,p] of particles.entries()){
+    const [i,j] = key.split(',').map(x=>parseInt(x));
+    if(grid[idx(i,j)]){
+      p.aliveCell = true; p.fade = 1; p.fadeCount = 0;
+      p.step();
+      const ni = (Math.floor(p.x) + N) % N, nj = (Math.floor(p.y) + N) % N;
+      const newKey = ni + ',' + nj;
+      if(newParticles.has(newKey)){
+        if(p.age > newParticles.get(newKey).age) newParticles.set(newKey, p);
+      } else newParticles.set(newKey, p);
+    } else {
+      if(p.fadeCount < 10){
+        p.aliveCell = false; p.fadeCount++; p.fade = Math.max(0, 1 - p.fadeCount/10);
+        p.step();
+        const ni = (Math.floor(p.x) + N) % N, nj = (Math.floor(p.y) + N) % N;
+        const newKey = ni + ',' + nj;
+        if(newParticles.has(newKey)){
+          if(p.age > newParticles.get(newKey).age) newParticles.set(newKey, p);
+        } else newParticles.set(newKey, p);
+      }
+    }
+  }
+  // spawn particles for births
+  for(let j=0;j<N;j++){
+    for(let i=0;i<N;i++){
+      if(grid[idx(i,j)] && !newParticles.has(i+','+j)){
+        newParticles.set(i+','+j, new Particle(i+0.5 + (Math.random()*0.4-0.2), j+0.5 + (Math.random()*0.4-0.2)));
+      }
+    }
+  }
+  particles = newParticles;
+}
+
+/* -------------------------
+   Loop
+   ------------------------- */
+function loop(ts){
+  if(!lastTime) lastTime = ts;
+  const dt = ts - lastTime; lastTime = ts;
+  accum += dt;
+  const interval = 1000 / fps;
+  while(accum >= interval){
+    accum -= interval;
+    if(chaosOn && Math.random() < 0.002 * chaosIntensity) {
+      const i = Math.floor(Math.random()*gridSize), j = Math.floor(Math.random()*gridSize);
+      grid[idx(i,j)] = grid[idx(i,j)] ? 0 : 1;
+    }
+    stepSimulation();
+  }
+  draw();
+  if(running) requestAnimationFrame(loop);
+}
+
+/* -------------------------
+   Wiring: UI & interactions
+   ------------------------- */
+function id(x){ return document.getElementById(x); }
+
+function syncRangeWithNumber(rngId, numId, apply){
+  const r = id(rngId), n = id(numId);
+  r.addEventListener('input', e => { n.value = e.target.value; apply(e.target.value); });
+  n.addEventListener('input', e => { r.value = e.target.value; apply(e.target.value); });
+}
+
+document.getElementById('settingsBtn').addEventListener('click', ()=>{
+  const panel = document.getElementById('settingsPanel');
+  panel.classList.toggle('show');
+  const expanded = panel.classList.contains('show');
+  document.getElementById('settingsBtn').setAttribute('aria-expanded', expanded ? 'true' : 'false');
+});
+
+id('start').addEventListener('click', ()=>{
+  running = !running;
+  id('start').textContent = running ? 'Pause' : 'Start';
+  if(running){ lastTime = 0; requestAnimationFrame(loop); }
+});
+id('step').addEventListener('click', ()=>{ stepSimulation(); draw(); });
+id('randomize').addEventListener('click', ()=>{ randomizeGrid(density); draw(); });
+id('clear').addEventListener('click', ()=>{ clearGrid(); draw(); });
+
+id('download').addEventListener('click', ()=>{
+  const link = document.createElement('a');
+  link.download = 'game_of_life_chaos_surprise.png';
+  link.href = canvas.toDataURL('image/png');
+  try { link.click(); } catch(e){ window.open(link.href, '_blank'); }
+});
+id('exportFrames').addEventListener('click', ()=> {
+  const copyGrid = grid.slice();
+  const copySpecies = species.slice();
+  const copyParticles = new Map(particles);
+  for(let f=0; f<60; f++){ stepSimulation(); }
+  const link = document.createElement('a'); link.href = canvas.toDataURL('image/png'); link.target = '_blank';
+  window.open(link.href, '_blank');
+  grid.set(copyGrid); species.set(copySpecies); particles = copyParticles;
+  draw();
+});
+
+// ranges
+syncRangeWithNumber('gridSize','gridSizeNum', v => { gridSize = Math.max(30, Math.round(v)); allocGrid(gridSize); randomizeGrid(density); resizeCanvas(); draw(); buildFriends(2); });
+syncRangeWithNumber('density','densityNum', v => { density = parseFloat(v); });
+syncRangeWithNumber('noise','noiseNum', v => { noise = parseFloat(v); });
+syncRangeWithNumber('radius','radiusNum', v => { radius = Math.max(1, Math.round(v)); });
+syncRangeWithNumber('maxSpeed','maxSpeedNum', v => { maxSpeed = parseFloat(v); });
+syncRangeWithNumber('pSize','pSizeNum', v => { baseParticleSize = parseFloat(v); });
+syncRangeWithNumber('fps','fpsNum', v => { fps = Math.max(5, Math.round(v)); });
+syncRangeWithNumber('chaosIntensity','chaosIntensityNum', v => { chaosIntensity = parseFloat(v); });
+
+// selects & toggles
+id('colormode').addEventListener('change', e => { colorMode = e.target.value; draw(); });
+id('chaosMode').addEventListener('change', e => { chaosOn = (e.target.value === 'on'); });
+id('showOverlay').addEventListener('change', e => { showOverlay = (e.target.value === 'on'); });
+
+document.getElementById('toggleSparks').addEventListener('change', e => { sparksEnabled = e.target.checked; });
+document.getElementById('toggleNetwork').addEventListener('change', e => { networkEnabled = e.target.checked; });
+document.getElementById('toggleSpecies').addEventListener('change', e => { speciesEnabled = e.target.checked; });
+document.getElementById('toggleMemory').addEventListener('change', e => { memoryEnabled = e.target.checked; });
+
+/* -------------------------
+   Touch/Pointer repulsion (surprise)
+   - pointerdown/move: set touchPoint; apply repulsion to particles
+   - pointerup: decay
+   ------------------------- */
+let touchPoint = null;
+let touchRadius = 8; // in grid cells
+let touchStrength = 0.9;
+let touchDecay = 0.88;
+
+function setTouchFromEvent(e){
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.clientX ?? (e.touches && e.touches[0] && e.touches[0].clientX)) - rect.left;
+  const y = (e.clientY ?? (e.touches && e.touches[0] && e.touches[0].clientY)) - rect.top;
+  touchPoint = { x: (x / rect.width) * gridSize, y: (y / rect.height) * gridSize, radius: touchRadius, strength: touchStrength, life: 18 };
+  drawTouchOverlay();
+}
+canvas.addEventListener('pointerdown', (e)=>{ setTouchFromEvent(e); canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointermove', (e)=>{ if(e.pressure > 0 || e.buttons) setTouchFromEvent(e); });
+canvas.addEventListener('pointerup', (e)=>{ if(touchPoint) touchPoint.life = Math.max(6, touchPoint.life); canvas.releasePointerCapture(e.pointerId); });
+canvas.addEventListener('pointercancel', ()=>{ touchPoint = null; clearOverlay(); });
+
+function applyTouchRepel(){
+  if(!touchPoint) return;
+  const N = gridSize;
+  for(const p of particles.values()){
+    const dx = p.x - touchPoint.x;
+    const dy = p.y - touchPoint.y;
+    const dist = Math.hypot(dx,dy);
+    if(dist < touchPoint.radius){
+      const push = (1 - (dist / touchPoint.radius));
+      p.vx += (dx / (dist + 1e-6)) * push * touchPoint.strength * 0.8;
+      p.vy += (dy / (dist + 1e-6)) * push * touchPoint.strength * 0.8;
+      if(sparksEnabled) p.spark = Math.min(1, p.spark + 0.35 * push);
+      // Mutation: temporarily increase birth chance around touch
+      const ci = Math.floor(p.x), cj = Math.floor(p.y);
+      if(ci>=0 && ci<N && cj>=0 && cj<N && Math.random() < 0.02 * (touchPoint.strength + chaosIntensity)){
+        grid[idx(ci,cj)] = 1;
+        if(speciesEnabled && Math.random() < 0.12) species[idx(ci,cj)] = Math.random() < 0.7 ? 1 : 2;
+      }
+    }
+  }
+  // decay touch
+  touchPoint.radius *= touchDecay;
+  touchPoint.strength *= 0.95;
+  touchPoint.life--;
+  if(touchPoint.life <= 0 || touchPoint.radius < 0.6) touchPoint = null;
+  drawTouchOverlay();
+}
+
+function drawTouchOverlay(){
+  const rect = canvas.getBoundingClientRect();
+  octx.clearRect(0,0,overlay.width,overlay.height);
+  if(!touchPoint) return;
+  const gx = (touchPoint.x / gridSize) * overlay.width;
+  const gy = (touchPoint.y / gridSize) * overlay.height;
+  const gr = (touchPoint.radius / gridSize) * Math.max(overlay.width, overlay.height);
+  const grad = octx.createRadialGradient(gx, gy, 0, gx, gy, gr);
+  grad.addColorStop(0, `rgba(255,255,255,${0.12 * touchPoint.strength})`);
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  octx.fillStyle = grad;
+  octx.beginPath(); octx.arc(gx, gy, gr, 0, Math.PI*2); octx.fill();
+}
+function clearOverlay(){ octx.clearRect(0,0,overlay.width,overlay.height); }
+
+/* integrate touch repulsion into main loop by hooking applyTouchRepel after conwayStep */
+const originalStepSimulation = stepSimulation;
+stepSimulation = function(){
+  // apply touch repulsion (affects particles & grid)
+  if(touchPoint) applyTouchRepel();
+  // proceed normal
+  originalStepSimulation();
+};
+
+/* -------------------------
+   Canvas click toggles cell (but pointer interaction handled above)
+   ------------------------- */
+canvas.addEventListener('click', (ev)=>{
+  const rect = canvas.getBoundingClientRect();
+  const x = (ev.clientX - rect.left) * (canvas.width / rect.width) / DPR;
+  const y = (ev.clientY - rect.top) * (canvas.height / rect.height) / DPR;
+  const i = Math.floor((x / width) * gridSize);
+  const j = Math.floor((y / height) * gridSize);
+  if(i>=0 && i<gridSize && j>=0 && j<gridSize){
+    const k = idx(i,j);
+    grid[k] = grid[k] ? 0 : 1;
+    if(grid[k]) particles.set(i+','+j, new Particle(i+0.5,j+0.5));
+    else particles.delete(i+','+j);
+    draw();
+  }
+});
+
+/* -------------------------
+   Init
+   ------------------------- */
+function init(){
+  allocGrid(gridSize);
+  randomizeGrid(density);
+  resizeCanvas();
+  solarEvents = [];
+  for(let i=0;i<3;i++) if(Math.random()<0.6) solarEvents.push(new SolarWind());
+  draw();
+}
+init();
+
+/* helpers */
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+</script>
+</body>
+</html>
