@@ -1,341 +1,698 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Conway's Game of Life — Flock Visualization</title>
-  <style>
-    :root{--bg:#0b0b0f;--panel:#0f1720;--accent:#7dd3fc;--muted:#94a3b8}
-    html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:#e6eef6}
-    .app{display:grid;grid-template-columns:1fr 320px;gap:18px;height:100vh;padding:18px;box-sizing:border-box}
-    .stage{background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent);border-radius:12px;display:flex;align-items:center;justify-content:center;padding:12px}
-    canvas{background:#05060a;border-radius:8px;max-width:100%;height:auto}
-    .panel{background:var(--panel);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:12px}
-    .row{display:flex;gap:8px;align-items:center}
-    label{font-size:13px;color:var(--muted);min-width:120px}
-    input[type=range]{flex:1}
-    input[type=number]{width:82px;padding:6px;border-radius:6px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit}
-    button{padding:8px 10px;border-radius:8px;border:0;background:linear-gradient(180deg,var(--accent),#38bdf8);color:#042027;cursor:pointer;font-weight:600}
-    .controls{display:flex;gap:8px}
-    small{color:var(--muted);display:block;margin-top:6px}
-    .footer{margin-top:auto;font-size:12px;color:var(--muted)}
-    .pill{background:rgba(255,255,255,0.03);padding:6px 8px;border-radius:8px;display:inline-block}
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Conway's Game of Life — Chaos Mode (C3)</title>
+<style>
+  :root {
+    --bg:#0b0b0f; --panel:#0f1720; --accent:#ff6bd6; --muted:#94a3b8;
+  }
+  html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:#e6eef6;overflow:hidden}
+  .app{position:relative;width:100%;height:100%}
+  .stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+  canvas{display:block;width:100%;height:100%;background:#05060a}
+  /* settings toggle */
+  .settings-toggle{
+    position:absolute;right:14px;top:14px;background:var(--accent);color:#041018;border:0;border-radius:999px;padding:10px 14px;font-weight:700;cursor:pointer;z-index:40;box-shadow:0 8px 30px rgba(255,107,214,0.12)
+  }
+  /* panel */
+  .settings-panel{
+    position:absolute;top:64px;right:14px;width:92%;max-width:360px;background:rgba(12,18,24,0.9);backdrop-filter: blur(8px);border-radius:12px;padding:12px;box-shadow:0 12px 40px rgba(0,0,0,.6);display:none;flex-direction:column;gap:10px;z-index:40;max-height:78vh;overflow:auto;
+  }
+  .settings-panel.show{display:flex;animation:slideIn .22s ease}
+  @keyframes slideIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+  .row{display:flex;gap:8px;align-items:center}
+  label{font-size:13px;color:var(--muted);min-width:120px}
+  input[type=range]{flex:1}
+  input[type=number],select{width:92px;padding:6px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
+  .control{padding:10px;border-radius:10px;border:0;background:linear-gradient(180deg,var(--accent),#ff3fb5);color:#041018;cursor:pointer;font-weight:700;flex:1}
+  .controls{display:flex;gap:8px}
+  .footer{font-size:12px;color:var(--muted);margin-top:6px}
+  .pill{background:rgba(255,255,255,0.03);padding:6px 8px;border-radius:8px;display:inline-block}
+  .small{font-size:12px;color:var(--muted)}
+</style>
 </head>
 <body>
   <div class="app">
     <div class="stage">
-      <canvas id="c" width="800" height="800"></canvas>
+      <canvas id="c" width="800" height="800" aria-label="Conway Game of Life"></canvas>
     </div>
 
-    <div class="panel">
-      <div class="row controls">
-        <button id="start">Start</button>
-        <button id="step">Step</button>
-        <button id="randomize">Randomize</button>
-        <button id="clear">Clear</button>
+    <button class="settings-toggle" id="settingsBtn" aria-expanded="false">⚙</button>
+
+    <div class="settings-panel" id="settingsPanel" role="dialog" aria-modal="false">
+      <div class="controls">
+        <button id="start" class="control">Start</button>
+        <button id="step" class="control">Step</button>
+        <button id="randomize" class="control">Randomize</button>
+        <button id="clear" class="control">Clear</button>
       </div>
 
-      <div class="row"><label>Grid size</label><input id="gridSize" type="range" min="20" max="200" value="80"><input id="gridSizeNum" type="number" min="20" max="200" value="80"></div>
-      <div class="row"><label>Initial density</label><input id="density" type="range" min="0" max="0.5" step="0.01" value="0.14"><input id="densityNum" type="number" min="0" max="0.5" step="0.01" value="0.14"></div>
-      <div class="row"><label>Random noise</label><input id="noise" type="range" min="0" max="0.02" step="0.001" value="0.003"><input id="noiseNum" type="number" min="0" max="0.02" step="0.001" value="0.003"></div>
+      <div class="row"><label>Grid size</label><input id="gridSize" type="range" min="30" max="180" value="90"><input id="gridSizeNum" type="number" min="30" max="180" value="90"></div>
+      <div class="row"><label>Initial density</label><input id="density" type="range" min="0" max="0.5" step="0.01" value="0.18"><input id="densityNum" type="number" min="0" max="0.5" step="0.01" value="0.18"></div>
+      <div class="row"><label>Random noise</label><input id="noise" type="range" min="0" max="0.06" step="0.001" value="0.006"><input id="noiseNum" type="number" min="0" max="0.06" step="0.001" value="0.006"></div>
       <div class="row"><label>Flock radius</label><input id="radius" type="range" min="1" max="8" step="1" value="3"><input id="radiusNum" type="number" min="1" max="8" value="3"></div>
       <div class="row"><label>Max speed</label><input id="maxSpeed" type="range" min="0.1" max="2" step="0.05" value="0.7"><input id="maxSpeedNum" type="number" min="0.1" max="2" step="0.05" value="0.7"></div>
-      <div class="row"><label>Particle size</label><input id="pSize" type="range" min="2" max="16" value="6"><input id="pSizeNum" type="number" min="2" max="16" value="6"></div>
-
+      <div class="row"><label>Particle size</label><input id="pSize" type="range" min="2" max="18" value="6"><input id="pSizeNum" type="number" min="2" max="18" value="6"></div>
       <div class="row"><label>FPS (visual)</label><input id="fps" type="range" min="5" max="60" value="30"><input id="fpsNum" type="number" min="5" max="60" value="30"></div>
 
       <div class="row"><label>Color mode</label>
         <select id="colormode">
-          <option value="mono">Monochrome (white)</option>
-          <option value="age">Age -> size/alpha</option>
+          <option value="psy">Chaos (psychedelic)</option>
           <option value="hue">Hue by age</option>
+          <option value="mono">Monochrome</option>
         </select>
       </div>
 
-      <div class="row"><button id="download">Download PNG</button><button id="exportFrames">Export 60 frames</button></div>
+      <div class="row"><label>Chaos Mode</label>
+        <select id="chaosMode"><option value="on" selected>On (C3)</option><option value="off">Off</option></select>
+      </div>
+      <div class="row"><label>Chaos intensity</label><input id="chaosIntensity" type="range" min="0" max="1" step="0.01" value="1"><input id="chaosIntensityNum" type="number" min="0" max="1" step="0.01" value="1"></div>
+      <div class="row"><label>Show overlays</label>
+        <select id="showOverlay"><option value="on" selected>On</option><option value="off">Off</option></select>
+      </div>
+
+      <div class="row"><button id="download" class="control">Download PNG</button><button id="exportFrames" class="control">Export 60 Frames</button></div>
 
       <div class="footer">
-        <div><span class="pill">Rules:</span> Classic Conway's Game of Life on a torus (wrap) + small random births/deaths</div>
-        <small>Click on canvas to toggle cells. Use Randomize to fill new initial pattern. Adjust flock radius/max speed for more or less "starlings" behavior.</small>
-        <small style="margin-top:8px">Made for you — press Start to animate.</small>
+        <div><span class="pill">Rules:</span> Conway's Game of Life on a torus + flock behavior + external solar-wind events (Chaos Mode C3)</div>
+        <div class="small">Tap canvas to toggle cells. Chaos Mode introduces unpredictable weather events that push, mutate, and create emergent patterns. Intensity 1 = full psychedelic rave.</div>
       </div>
     </div>
   </div>
 
-  <script>
-  // ---- Utility ----
-  function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+<script>
+/* =========================
+  C3 Chaos Mode — Full File
+  - Procedural background
+  - External solar-wind events
+  - Psychedelic rendering
+  - Performance-conscious
+  ========================= */
 
-  // ---- State ----
-  const canvas = document.getElementById('c')
-  const ctx = canvas.getContext('2d')
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: true });
+const DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
 
-  let gridSize = 80
-  let density = 0.14
-  let noise = 0.003
-  let radius = 3
-  let maxSpeed = 0.7
-  let baseParticleSize = 6
-  let fps = 30
-  let colorMode = 'mono'
+let gridSize = 90;
+let density = 0.18;
+let noise = 0.006;
+let radius = 3;
+let maxSpeed = 0.7;
+let baseParticleSize = 6;
+let fps = 30;
+let colorMode = 'psy';
+let chaosOn = true;
+let chaosIntensity = 1.0;
+let showOverlay = true;
 
-  let grid = []
-  let particles = new Map() // key: i,j -> Particle
-  let running = false
-  let lastTime = 0
-  let accum = 0
-  const W = canvas.width
-  const H = canvas.height
-  let cellW = W / gridSize
+let running = false, lastTime = 0, accum = 0;
+let grid = null;             // Uint8Array (flat)
+let gridNext = null;
+let particles = new Map();   // key 'i,j' -> Particle
+let cellW = 8;               // will be computed
+let width = 800, height = 800;
 
-  // ---- Particle class ----
-  class Particle {
-    constructor(x,y){
-      this.x = x; this.y = y
-      this.vx = (Math.random()*0.4-0.2)
-      this.vy = (Math.random()*0.4-0.2)
-      this.age = 0
-      this.aliveCell = true
-      this.fade = 1
-      this.fadeCount = 0
-    }
-    step(){
-      const N = gridSize
-      const ix = Math.round(this.x) % N
-      const iy = Math.round(this.y) % N
-      let xs=0, ys=0, count=0
-      for(let dx=-radius;dx<=radius;dx++){
-        for(let dy=-radius;dy<=radius;dy++){
-          if(dx===0 && dy===0) continue
-          const nx = (ix + dx + N) % N
-          const ny = (iy + dy + N) % N
-          if(grid[nx][ny]){ xs += nx + 0.5; ys += ny + 0.5; count++ }
-        }
-      }
-      if(count>0){
-        let avgx = xs/count, avgy = ys/count
-        let sx = avgx - this.x, sy = avgy - this.y
-        let mag = Math.hypot(sx,sy)+1e-6
-        sx/=mag; sy/=mag
-        this.vx += 0.15*sx + (Math.random()*0.1-0.05)
-        this.vy += 0.15*sy + (Math.random()*0.1-0.05)
-      }else{
-        this.vx += (Math.random()*0.06-0.03)
-        this.vy += (Math.random()*0.06-0.03)
-      }
-      let sp = Math.hypot(this.vx,this.vy)
-      if(sp>maxSpeed){ this.vx *= maxSpeed/sp; this.vy *= maxSpeed/sp }
-      this.x = (this.x + this.vx + N) % N
-      this.y = (this.y + this.vy + N) % N
-      this.age++
+const canvasContainerPadding = 0;
+
+// resize canvas for DPR and container
+function resizeCanvas() {
+  const rect = canvas.getBoundingClientRect();
+  width = Math.max(200, Math.floor(rect.width));
+  height = Math.max(200, Math.floor(rect.height));
+  canvas.width = Math.floor(width * DPR);
+  canvas.height = Math.floor(height * DPR);
+  canvas.style.width = width + 'px';
+  canvas.style.height = height + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  cellW = width / gridSize;
+}
+window.addEventListener('resize', () => { resizeCanvas(); draw(); });
+resizeCanvas();
+
+/* -------------------------
+   Utilities / Perlin-ish noise
+   - Simple value noise with interpolation
+   - Fast and tileable for sandbox
+   ------------------------- */
+function createNoiseSeed(seed){
+  // simple LCG
+  let s = seed >>> 0;
+  return function(){ s = (1664525 * s + 1013904223) >>> 0; return s / 4294967296; };
+}
+function buildNoiseGrid(w, h, seed=1337){
+  const rand = createNoiseSeed(seed);
+  const g = new Float32Array((w+1)*(h+1));
+  for(let y=0;y<=h;y++){
+    for(let x=0;x<=w;x++){
+      g[y*(w+1)+x] = rand();
     }
   }
+  return { w, h, g };
+}
+function smoothstep(t){ return t * t * (3 - 2 * t); }
+function sampleNoise(noiseGrid, u, v){
+  const W = noiseGrid.w, H = noiseGrid.h;
+  // u and v are in [0,1) but we tile them
+  const x = (u * W) % W; const y = (v * H) % H;
+  const xi = Math.floor(x), yi = Math.floor(y);
+  const xf = x - xi, yf = y - yi;
+  const i00 = yi*(W+1)+xi, i10 = yi*(W+1)+((xi+1)%(W+1));
+  const i01 = ((yi+1)%(H+1))*(W+1)+xi, i11 = ((yi+1)%(H+1))*(W+1)+((xi+1)%(W+1));
+  const v00 = noiseGrid.g[i00], v10 = noiseGrid.g[i10], v01 = noiseGrid.g[i01], v11 = noiseGrid.g[i11];
+  const ux = smoothstep(xf), uy = smoothstep(yf);
+  const a = v00*(1-ux) + v10*ux;
+  const b = v01*(1-ux) + v11*ux;
+  return a*(1-uy) + b*uy;
+}
+/* build some noise layers */
+let noiseLayer1 = buildNoiseGrid(96,96, Date.now()%65536);
+let noiseLayer2 = buildNoiseGrid(48,48, (Date.now()+12345)%65536);
+let noiseTime = 0;
 
-  // ---- Grid functions ----
-  function makeGrid(n,d){
-    gridSize = n
-    cellW = W / gridSize
-    grid = new Array(gridSize)
+/* -------------------------
+   Solar-wind weather events
+   - Each event has x,y (float cell coords), vx,vy, strength, radius, life
+   - They drift and influence CA and particles
+   ------------------------- */
+class SolarWind {
+  constructor() {
+    const N = gridSize;
+    this.x = Math.random()*N;
+    this.y = Math.random()*N;
+    const ang = Math.random() * Math.PI * 2;
+    const sp = 0.15 + Math.random()*0.6;
+    this.vx = Math.cos(ang) * sp;
+    this.vy = Math.sin(ang) * sp;
+    this.strength = 0.6 + Math.random()*1.6; // multiplier for mutation/force
+    this.radius = 8 + Math.random()*40;      // in cells
+    this.life = 200 + Math.floor(Math.random()*400);
+    this.age = 0;
+    this.hue = Math.floor(Math.random()*360);
+  }
+  step(){
+    const N = gridSize;
+    this.x = (this.x + this.vx + N) % N;
+    this.y = (this.y + this.vy + N) % N;
+    this.age++; this.life--;
+  }
+  alive(){ return this.life>0; }
+}
+let solarEvents = [];
+let nextEventTimer = 0;
+
+/* -------------------------
+   Grid helper: flat arrays
+   index(i,j) = i + j*gridSize
+   ------------------------- */
+function idx(i,j){ return i + j*gridSize; }
+
+function allocGrid(n){
+  grid = new Uint8Array(n * n);
+  gridNext = new Uint8Array(n * n);
+}
+function randomizeGrid(d){
+  for(let j=0;j<gridSize;j++){
     for(let i=0;i<gridSize;i++){
-      grid[i]=new Array(gridSize)
-      for(let j=0;j<gridSize;j++) grid[i][j]=Math.random()<d?1:0
-    }
-    particles.clear()
-    for(let i=0;i<gridSize;i++) for(let j=0;j<gridSize;j++) if(grid[i][j]){
-      const p = new Particle(i+0.5 + (Math.random()*0.4-0.2), j+0.5 + (Math.random()*0.4-0.2))
-      particles.set(i+','+j,p)
+      grid[idx(i,j)] = (Math.random() < d) ? 1 : 0;
     }
   }
-
-  function conwayStep(){
-    const N = gridSize
-    // compute neighbors
-    const neighbors = new Array(N)
-    for(let i=0;i<N;i++){ neighbors[i]=new Array(N).fill(0) }
-    for(let i=0;i<N;i++) for(let j=0;j<N;j++) if(grid[i][j]){
-      for(let di=-1;di<=1;di++) for(let dj=-1;dj<=1;dj++) if(!(di===0&&dj===0)){
-        const ni=(i+di+N)%N, nj=(j+dj+N)%N
-        neighbors[ni][nj]++
-      }
+  // rebuild particles
+  particles.clear();
+  for(let j=0;j<gridSize;j++){
+    for(let i=0;i<gridSize;i++){
+      if(grid[idx(i,j)]) particles.set(i+','+j, new Particle(i+0.5 + (Math.random()*0.4-0.2), j+0.5 + (Math.random()*0.4-0.2)));
     }
-    const newGrid = new Array(N)
-    for(let i=0;i<N;i++){
-      newGrid[i]=new Array(N)
-      for(let j=0;j<N;j++){
-        const n = neighbors[i][j]
-        if(grid[i][j]) newGrid[i][j] = (n===2||n===3)?1:0
-        else newGrid[i][j] = (n===3)?1:0
-        // random noise births/deaths
-        if(Math.random()<noise) newGrid[i][j]=1
-        if(Math.random()>(1-noise)) newGrid[i][j]=0
-      }
-    }
-    grid = newGrid
   }
+}
+function clearGrid(){
+  grid.fill(0);
+  particles.clear();
+}
 
-  // ---- Visual / update loop ----
-  function stepSimulation(){
-    conwayStep()
-    // update particles map
-    const N = gridSize
-    const newParticles = new Map()
-    for(const [key,p] of particles.entries()){
-      const [i,j] = key.split(',').map(x=>parseInt(x))
-      if(grid[i][j]){
-        p.aliveCell=true; p.fade=1; p.fadeCount=0; p.step()
-        const ni = Math.floor(p.x)%N, nj = Math.floor(p.y)%N
-        const newKey = ni+','+nj
-        if(newParticles.has(newKey)){
-          if(p.age > newParticles.get(newKey).age) newParticles.set(newKey,p)
-        } else newParticles.set(newKey,p)
-      } else {
-        if(p.fadeCount < 10){
-          p.aliveCell=false; p.fadeCount++; p.fade = Math.max(0,1 - p.fadeCount/10); p.step()
-          const ni = Math.floor(p.x)%N, nj = Math.floor(p.y)%N
-          const newKey = ni+','+nj
-          if(newParticles.has(newKey)){
-            if(p.age > newParticles.get(newKey).age) newParticles.set(newKey,p)
-          } else newParticles.set(newKey,p)
+/* -------------------------
+   Particle class (kept similar)
+   ------------------------- */
+class Particle {
+  constructor(x,y){
+    this.x = x; this.y = y;
+    this.vx = (Math.random()*0.4-0.2);
+    this.vy = (Math.random()*0.4-0.2);
+    this.age = 0;
+    this.aliveCell = true;
+    this.fade = 1;
+    this.fadeCount = 0;
+  }
+  step(){
+    const N = gridSize;
+    const ix = (Math.round(this.x) + N) % N;
+    const iy = (Math.round(this.y) + N) % N;
+    let xs=0, ys=0, count=0;
+    for(let dx=-radius; dx<=radius; dx++){
+      for(let dy=-radius; dy<=radius; dy++){
+        if(dx===0 && dy===0) continue;
+        const nx = (ix + dx + N) % N;
+        const ny = (iy + dy + N) % N;
+        if(grid[idx(nx,ny)]){ xs += nx + 0.5; ys += ny + 0.5; count++ }
+      }
+    }
+    if(count>0){
+      let avgx = xs/count, avgy = ys/count;
+      let sx = avgx - this.x, sy = avgy - this.y;
+      let mag = Math.hypot(sx,sy)+1e-6;
+      sx/=mag; sy/=mag;
+      this.vx += 0.15*sx + (Math.random()*0.1-0.05);
+      this.vy += 0.15*sy + (Math.random()*0.1-0.05);
+    } else {
+      this.vx += (Math.random()*0.06-0.03);
+      this.vy += (Math.random()*0.06-0.03);
+    }
+    // apply solar event force if inside
+    if(chaosOn && solarEvents.length){
+      for(const ev of solarEvents){
+        const dx = (this.x - ev.x);
+        const dy = (this.y - ev.y);
+        const d2 = dx*dx + dy*dy;
+        const r2 = (ev.radius*ev.radius);
+        if(d2 < r2){
+          const f = (1 - Math.sqrt(d2)/ev.radius) * ev.strength * 0.6 * chaosIntensity;
+          this.vx += dx * 0.02 * f;
+          this.vy += dy * 0.02 * f;
         }
       }
     }
-    // spawn particles for births
-    for(let i=0;i<N;i++) for(let j=0;j<N;j++) if(grid[i][j] && !newParticles.has(i+','+j)){
-      newParticles.set(i+','+j, new Particle(i+0.5 + (Math.random()*0.4-0.2), j+0.5 + (Math.random()*0.4-0.2)))
-    }
-    particles = newParticles
+    let sp = Math.hypot(this.vx, this.vy);
+    if(sp > maxSpeed){ this.vx *= maxSpeed/sp; this.vy *= maxSpeed/sp; }
+    this.x = (this.x + this.vx + N) % N;
+    this.y = (this.y + this.vy + N) % N;
+    this.age++;
   }
+}
 
-  function draw(){
-    ctx.clearRect(0,0,W,H)
-    // optional grid or background texture omitted for speed
-    // draw particles
-    for(const p of particles.values()){
-      const sx = p.x * cellW
-      const sy = p.y * cellW
-      const age = p.age
-      let alpha = p.aliveCell ? 1 : p.fade
-      let size = baseParticleSize + Math.min(40, age*0.2)
-      if(colorMode==='mono'){
-        ctx.fillStyle = `rgba(255,255,255,${alpha})`
-      }else if(colorMode==='age'){
-        const g = Math.min(220, 80 + Math.floor(age*2))
-        ctx.fillStyle = `rgba(${g},${200},${240},${alpha})`
-      }else if(colorMode==='hue'){
-        const h = Math.min(360, age*6 % 360)
-        ctx.fillStyle = `hsla(${h},80%,65%,${alpha})`
+/* -------------------------
+   Conway step with chaos interactions
+   ------------------------- */
+function conwayStep(){
+  const N = gridSize;
+  // zero neighbors (Uint16 for counts)
+  const neighbors = new Uint8Array(N * N);
+  // count neighbors
+  for(let j=0;j<N;j++){
+    for(let i=0;i<N;i++){
+      if(grid[idx(i,j)]){
+        for(let di=-1; di<=1; di++){
+          for(let dj=-1; dj<=1; dj++){
+            if(di===0 && dj===0) continue;
+            const ni = (i + di + N) % N;
+            const nj = (j + dj + N) % N;
+            neighbors[idx(ni,nj)]++;
+          }
+        }
       }
-      ctx.beginPath()
-      ctx.arc(sx, sy, size * (cellW/12), 0, Math.PI*2)
-      ctx.fill()
     }
   }
 
-  // ---- Animation frame control ----
-  function loop(ts){
-    if(!lastTime) lastTime = ts
-    const dt = ts - lastTime
-    lastTime = ts
-    accum += dt
-    const interval = 1000 / fps
-    if(accum >= interval){
-      accum -= interval
-      stepSimulation()
-      draw()
+  // optionally spawn solar events
+  if(chaosOn && nextEventTimer <= 0){
+    // spawn chance influenced by chaosIntensity and noise
+    const spawnChance = 0.03 * chaosIntensity + 0.01 * (noise*100);
+    if(Math.random() < spawnChance){
+      solarEvents.push(new SolarWind());
     }
-    if(running) requestAnimationFrame(loop)
+    nextEventTimer = 8 + Math.floor(Math.random()*40);
+  } else nextEventTimer--;
+
+  // step existing events
+  for(let k=solarEvents.length-1;k>=0;k--){
+    solarEvents[k].step();
+    if(!solarEvents[k].alive()) solarEvents.splice(k,1);
   }
 
-  // ---- DOM wiring ----
-  function hookup(){
-    const startBtn = document.getElementById('start')
-    const stepBtn = document.getElementById('step')
-    const randBtn = document.getElementById('randomize')
-    const clearBtn = document.getElementById('clear')
-    const downloadBtn = document.getElementById('download')
-    const exportBtn = document.getElementById('exportFrames')
+  // compute new grid with local chaos influence
+  for(let j=0;j<N;j++){
+    for(let i=0;i<N;i++){
+      const n = neighbors[idx(i,j)];
+      let val = 0;
+      const aliveNow = !!grid[idx(i,j)];
 
-    const gridSizeRange = document.getElementById('gridSize')
-    const gridSizeNum = document.getElementById('gridSizeNum')
-    const densityRange = document.getElementById('density')
-    const densityNum = document.getElementById('densityNum')
-    const noiseRange = document.getElementById('noise')
-    const noiseNum = document.getElementById('noiseNum')
-    const radiusRange = document.getElementById('radius')
-    const radiusNum = document.getElementById('radiusNum')
-    const maxSpeedRange = document.getElementById('maxSpeed')
-    const maxSpeedNum = document.getElementById('maxSpeedNum')
-    const pSizeRange = document.getElementById('pSize')
-    const pSizeNum = document.getElementById('pSizeNum')
-    const fpsRange = document.getElementById('fps')
-    const fpsNum = document.getElementById('fpsNum')
-    const colorModeSel = document.getElementById('colormode')
-
-    // sync ranges/number inputs
-    function sync(a,b,cb){ a.addEventListener('input',()=>{ b.value=a.value; cb && cb(a.value) })
-      b.addEventListener('input',()=>{ a.value=b.value; cb && cb(b.value) }) }
-    sync(gridSizeRange, gridSizeNum, v=>{ gridSize=parseInt(v); makeGrid(gridSize, density) })
-    sync(densityRange, densityNum, v=>{ density=parseFloat(v) })
-    sync(noiseRange, noiseNum, v=>{ noise=parseFloat(v) })
-    sync(radiusRange, radiusNum, v=>{ radius=parseInt(v) })
-    sync(maxSpeedRange, maxSpeedNum, v=>{ maxSpeed=parseFloat(v) })
-    sync(pSizeRange, pSizeNum, v=>{ baseParticleSize=parseFloat(v) })
-    sync(fpsRange, fpsNum, v=>{ fps=parseInt(v) })
-
-    startBtn.addEventListener('click', ()=>{
-      running = !running
-      startBtn.textContent = running ? 'Pause' : 'Start'
-      if(running) { lastTime = 0; requestAnimationFrame(loop) }
-    })
-    stepBtn.addEventListener('click', ()=>{ stepSimulation(); draw() })
-    randBtn.addEventListener('click', ()=>{ makeGrid(gridSize,density); draw() })
-    clearBtn.addEventListener('click', ()=>{ grid = new Array(gridSize).fill(0).map(()=>new Array(gridSize).fill(0)); particles.clear(); draw() })
-
-    downloadBtn.addEventListener('click', ()=>{
-      const link = document.createElement('a')
-      link.download = 'game_of_life_flock.png'
-      link.href = canvas.toDataURL('image/png')
-      link.click()
-    })
-
-    exportBtn.addEventListener('click', async ()=>{
-      const frames = 60
-      const zipName = 'gol_frames.zip'
-      // naive approach: capture frames and download as separate PNGs in a zip would require JSZip.
-      alert('This demo exports frames by saving them one-by-one as PNG. For a zip export, add JSZip to the page.\n\nWe will save 60 frames by stepping then saving each as PNG in-browser (prompts normal file-save per frame).')
-      for(let f=0; f<frames; f++){
-        stepSimulation(); draw()
-        const link = document.createElement('a')
-        link.href = canvas.toDataURL('image/png')
-        link.download = `frame_${f.toString().padStart(3,'0')}.png`
-        link.click()
-        await new Promise(r=>setTimeout(r,40))
+      // base rules
+      if(aliveNow){
+        val = (n === 2 || n === 3) ? 1 : 0;
+      } else {
+        val = (n === 3) ? 1 : 0;
       }
-    })
 
-    // canvas click toggles underlying cell
-    canvas.addEventListener('click', (ev)=>{
-      const rect = canvas.getBoundingClientRect()
-      const x = ev.clientX - rect.left
-      const y = ev.clientY - rect.top
-      const i = Math.floor(x / cellW)
-      const j = Math.floor(y / cellW)
-      if(i>=0 && i<gridSize && j>=0 && j<gridSize){ grid[i][j] = grid[i][j]?0:1; if(grid[i][j]) particles.set(i+','+j,new Particle(i+0.5,j+0.5)); else particles.delete(i+','+j); draw() }
-    })
+      // noise births/deaths (scaled)
+      const noiseProb = Math.min(0.18, noise * (1 + chaosIntensity*1.8));
+      if(Math.random() < noiseProb) val = 1;
+      if(Math.random() < noiseProb * 0.4) val = 0;
 
-    colorModeSel.addEventListener('change', ()=>{ colorMode = colorModeSel.value; draw() })
+      // solar event mutation: if any event overlaps cell, bias survival/birth
+      if(chaosOn && solarEvents.length){
+        for(const ev of solarEvents){
+          const dx = i - ev.x;
+          const dy = j - ev.y;
+          // wrap shortest distance
+          const wrapDx = Math.min(Math.abs(dx), Math.abs(dx + N), Math.abs(dx - N));
+          const wrapDy = Math.min(Math.abs(dy), Math.abs(dy + N), Math.abs(dy - N));
+          const d2 = wrapDx*wrapDx + wrapDy*wrapDy;
+          if(d2 < ev.radius*ev.radius){
+            const influence = (1 - Math.sqrt(d2)/ev.radius) * ev.strength * chaosIntensity;
+            // boost chance to become alive (temporary)
+            if(Math.random() < 0.04 * influence) val = 1;
+            // sometimes flip
+            if(Math.random() < 0.002 * influence) val = val ? 0 : 1;
+          }
+        }
+      }
+
+      gridNext[idx(i,j)] = val;
+    }
   }
 
-  // ---- Initialize and draw first frame ----
-  makeGrid(gridSize, density)
-  hookup()
-  draw()
+  // swap
+  const tmp = grid; grid = gridNext; gridNext = tmp;
+}
 
-  // fit canvas to container on resize
-  window.addEventListener('resize', ()=>{
-    const rect = canvas.getBoundingClientRect()
-  })
-  </script>
+/* -------------------------
+   Drawing: background + overlay + particles
+   ------------------------- */
+function draw(){
+  const w = width, h = height, s = cellW;
+  ctx.clearRect(0,0,w,h);
+
+  // procedural background — multi-layer noise + solar event glows + hue cycling (Chaos)
+  noiseTime += 0.001 + 0.001 * chaosIntensity;
+  // create small offscreen image for performance at grid scale
+  const bgW = Math.max(120, Math.min(320, Math.floor(w/3)));
+  const bgH = Math.max(120, Math.min(320, Math.floor(h/3)));
+  const img = ctx.createImageData(bgW, bgH);
+  let p = 0;
+  for(let y=0;y<bgH;y++){
+    for(let x=0;x<bgW;x++){
+      const u = (x/bgW + noiseTime*0.02) % 1;
+      const v = (y/bgH + noiseTime*0.015) % 1;
+      const n1 = sampleNoise(noiseLayer1, u, v);
+      const n2 = sampleNoise(noiseLayer2, u*1.5, v*1.2);
+      // combine, emphasize extremes for psychedelic look
+      let n = Math.pow(n1*0.6 + n2*0.4, 0.6);
+      // add solar events contribution
+      let glow = 0;
+      if(chaosOn){
+        const gx = (x/bgW) * gridSize;
+        const gy = (y/bgH) * gridSize;
+        for(const ev of solarEvents){
+          const dx = gx - ev.x;
+          const dy = gy - ev.y;
+          const d2 = dx*dx + dy*dy;
+          if(d2 < (ev.radius*ev.radius)){
+            glow += (1 - Math.sqrt(d2)/ev.radius) * (0.35*ev.strength) * chaosIntensity;
+          }
+        }
+      }
+      n = clamp(n + glow*0.8, 0, 1);
+      // palette mixing (Chaos Mode: cycling palettes)
+      let hueBase = (noiseTime*40 + (n*360*1.3)) % 360;
+      if(colorMode === 'hue') hueBase = (n*360) % 360;
+      else if(colorMode === 'mono') hueBase = 210;
+
+      // chaotic saturation & lightness
+      const sat = clamp(60 + n*60 + chaosIntensity*20, 25, 100);
+      const light = clamp(10 + n*60 + glow*30, 6, 84);
+
+      // convert HSL -> RGBA (fast approx)
+      const col = hslToRgb(hueBase, sat/100, light/100);
+      img.data[p++] = Math.round(col.r * 255);
+      img.data[p++] = Math.round(col.g * 255);
+      img.data[p++] = Math.round(col.b * 255);
+      img.data[p++] = clamp(100 + Math.round(glow*120), 60, 255);
+    }
+  }
+  // draw scaled background
+  const off = document.createElement('canvas');
+  off.width = bgW; off.height = bgH;
+  const offCtx = off.getContext('2d');
+  offCtx.putImageData(img, 0, 0);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = 0.9;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(off, 0, 0, w, h);
+  ctx.restore();
+
+  // optional overlay: solar events as glows
+  if(showOverlay && solarEvents.length){
+    for(const ev of solarEvents){
+      const gx = (ev.x / gridSize) * w;
+      const gy = (ev.y / gridSize) * h;
+      const r = (ev.radius / gridSize) * Math.max(w,h);
+      const grad = ctx.createRadialGradient(gx, gy, 0, gx, gy, r);
+      const hue = ev.hue;
+      grad.addColorStop(0, `hsla(${hue},100%,70%,${0.18 * chaosIntensity})`);
+      grad.addColorStop(0.4, `hsla(${(hue+40)%360},90%,55%,${0.08 * chaosIntensity})`);
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(gx, gy, r, 0, Math.PI*2); ctx.fill();
+    }
+  }
+
+  // draw particles (cells as particles)
+  const cellWpx = w / gridSize;
+  for(const pval of particles.values()){
+    const sx = pval.x * cellWpx;
+    const sy = pval.y * cellWpx;
+    const age = pval.age;
+    // color by age + chaos hue shift
+    let alpha = pval.aliveCell ? 1 : Math.max(0.08, pval.fade * 0.6);
+    let size = baseParticleSize + Math.min(40, age * 0.2);
+    if(colorMode === 'psy'){
+      const h = ((age * 6) + (noiseTime*180)) % 360;
+      ctx.fillStyle = `hsla(${h}, 92%, ${50 + (Math.sin(age*0.08)*6)}%, ${alpha})`;
+    } else if(colorMode === 'hue'){
+      const h = (age * 6) % 360;
+      ctx.fillStyle = `hsla(${h}, 76%, 60%, ${alpha})`;
+    } else {
+      ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+    }
+    ctx.beginPath();
+    ctx.arc(sx, sy, Math.max(0.8, size * (cellWpx/14)), 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // subtle vignette
+  ctx.save();
+  ctx.globalCompositeOperation = 'multiply';
+  const vg = ctx.createRadialGradient(w/2, h/2, Math.max(w,h)*0.2, w/2, h/2, Math.max(w,h)*0.65);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.28)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0,0,w,h);
+  ctx.restore();
+
+  // optionally draw gridlines if zoomed out
+  if(cellWpx >= 6 && false){
+    ctx.strokeStyle = 'rgba(255,255,255,0.02)';
+    ctx.lineWidth = 1;
+    for(let i=0;i<=gridSize;i++){
+      const x = Math.round(i * cellWpx) + 0.5;
+      ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke();
+    }
+    for(let j=0;j<=gridSize;j++){
+      const y = Math.round(j * cellWpx) + 0.5;
+      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
+    }
+  }
+}
+
+/* -------------------------
+   Utility HSL to RGB
+   ------------------------- */
+function hslToRgb(h, s, l){
+  h = h / 360;
+  let r, g, b;
+  if (s === 0) r = g = b = l;
+  else {
+    const hue2rgb = (p, q, t) => {
+      if(t < 0) t += 1; if(t > 1) t -= 1;
+      if(t < 1/6) return p + (q - p) * 6 * t;
+      if(t < 1/2) return q;
+      if(t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+      return p;
+    };
+    const q = l < 0.5 ? l * (1 + s) : (l + s - l * s);
+    const p = 2 * l - q;
+    r = hue2rgb(p, q, h + 1/3);
+    g = hue2rgb(p, q, h);
+    b = hue2rgb(p, q, h - 1/3);
+  }
+  return { r, g, b };
+}
+
+/* -------------------------
+   Simulation stepping & particle update
+   ------------------------- */
+function stepSimulation(){
+  // CA step
+  conwayStep();
+
+  // particles update
+  const N = gridSize;
+  const newParticles = new Map();
+  // update existing particles
+  for(const [key,p] of particles.entries()){
+    const [i,j] = key.split(',').map(x=>parseInt(x));
+    if(grid[idx(i,j)]){
+      p.aliveCell = true; p.fade = 1; p.fadeCount = 0;
+      p.step();
+      const ni = (Math.floor(p.x) + N) % N, nj = (Math.floor(p.y) + N) % N;
+      const newKey = ni + ',' + nj;
+      // keep oldest particle as representative
+      if(newParticles.has(newKey)){
+        if(p.age > newParticles.get(newKey).age) newParticles.set(newKey, p);
+      } else newParticles.set(newKey, p);
+    } else {
+      if(p.fadeCount < 10){
+        p.aliveCell = false; p.fadeCount++; p.fade = Math.max(0, 1 - p.fadeCount/10);
+        p.step();
+        const ni = (Math.floor(p.x) + N) % N, nj = (Math.floor(p.y) + N) % N;
+        const newKey = ni + ',' + nj;
+        if(newParticles.has(newKey)){
+          if(p.age > newParticles.get(newKey).age) newParticles.set(newKey, p);
+        } else newParticles.set(newKey, p);
+      }
+    }
+  }
+  // spawn particles for births
+  for(let j=0;j<N;j++){
+    for(let i=0;i<N;i++){
+      if(grid[idx(i,j)] && !newParticles.has(i+','+j)){
+        newParticles.set(i+','+j, new Particle(i+0.5 + (Math.random()*0.4-0.2), j+0.5 + (Math.random()*0.4-0.2)));
+      }
+    }
+  }
+  particles = newParticles;
+}
+
+/* -------------------------
+   Loop control
+   ------------------------- */
+function loop(ts){
+  if(!lastTime) lastTime = ts;
+  const dt = ts - lastTime; lastTime = ts;
+  accum += dt;
+  const interval = 1000 / fps;
+  while(accum >= interval){
+    accum -= interval;
+    // spawn chance scale (chaos intensity)
+    if(chaosOn && Math.random() < 0.002 * chaosIntensity) {
+      // small random perturbation injection
+      const i = Math.floor(Math.random()*gridSize), j = Math.floor(Math.random()*gridSize);
+      grid[idx(i,j)] = grid[idx(i,j)] ? 0 : 1;
+    }
+    stepSimulation();
+  }
+  draw();
+  if(running) requestAnimationFrame(loop);
+}
+
+/* -------------------------
+   Wiring: UI controls & init
+   ------------------------- */
+function id(x){ return document.getElementById(x); }
+
+function syncRangeWithNumber(rngId, numId, apply){
+  const r = id(rngId), n = id(numId);
+  r.addEventListener('input', e => { n.value = e.target.value; apply(e.target.value); });
+  n.addEventListener('input', e => { r.value = e.target.value; apply(e.target.value); });
+}
+
+// hookup toggles
+document.getElementById('settingsBtn').addEventListener('click', ()=>{
+  const panel = document.getElementById('settingsPanel');
+  panel.classList.toggle('show');
+  const expanded = panel.classList.contains('show');
+  document.getElementById('settingsBtn').setAttribute('aria-expanded', expanded ? 'true' : 'false');
+});
+
+// main buttons
+id('start').addEventListener('click', ()=>{
+  running = !running;
+  id('start').textContent = running ? 'Pause' : 'Start';
+  if(running){ lastTime = 0; requestAnimationFrame(loop); }
+});
+id('step').addEventListener('click', ()=>{ stepSimulation(); draw(); });
+id('randomize').addEventListener('click', ()=>{ randomizeGrid(density); draw(); });
+id('clear').addEventListener('click', ()=>{ clearGrid(); draw(); });
+
+// download/export (no alerts; create link but do not auto-attach)
+id('download').addEventListener('click', ()=>{
+  const link = document.createElement('a');
+  link.download = 'game_of_life_chaos.png';
+  link.href = canvas.toDataURL('image/png');
+  // in sandboxed env, download may be blocked. open in new tab as fallback
+  try { link.click(); } catch(e){ window.open(link.href, '_blank'); }
+});
+id('exportFrames').addEventListener('click', ()=> {
+  // In sandboxed environments zipping and repeated downloads often blocked;
+  // we simply step 60 frames and open the last in new tab as preview.
+  const copyGrid = grid.slice();
+  const copyParticles = new Map(particles);
+  for(let f=0; f<60; f++){ stepSimulation(); }
+  const link = document.createElement('a'); link.href = canvas.toDataURL('image/png'); link.target = '_blank';
+  window.open(link.href, '_blank');
+  grid.set(copyGrid); particles = copyParticles;
+  draw();
+});
+
+// ranges synchronization
+syncRangeWithNumber('gridSize','gridSizeNum', v => { gridSize = Math.max(30, Math.round(v)); allocGrid(gridSize); randomizeGrid(density); resizeCanvas(); draw(); });
+syncRangeWithNumber('density','densityNum', v => { density = parseFloat(v); });
+syncRangeWithNumber('noise','noiseNum', v => { noise = parseFloat(v); });
+syncRangeWithNumber('radius','radiusNum', v => { radius = Math.max(1, Math.round(v)); });
+syncRangeWithNumber('maxSpeed','maxSpeedNum', v => { maxSpeed = parseFloat(v); });
+syncRangeWithNumber('pSize','pSizeNum', v => { baseParticleSize = parseFloat(v); });
+syncRangeWithNumber('fps','fpsNum', v => { fps = Math.max(5, Math.round(v)); });
+syncRangeWithNumber('chaosIntensity','chaosIntensityNum', v => { chaosIntensity = parseFloat(v); });
+
+// select bindings
+id('colormode').addEventListener('change', e => { colorMode = e.target.value; draw(); });
+id('chaosMode').addEventListener('change', e => { chaosOn = (e.target.value === 'on'); });
+id('showOverlay').addEventListener('change', e => { showOverlay = (e.target.value === 'on'); });
+
+/* canvas interaction: toggle cell */
+canvas.addEventListener('click', (ev)=>{
+  const rect = canvas.getBoundingClientRect();
+  const x = (ev.clientX - rect.left) * (canvas.width / rect.width) / DPR;
+  const y = (ev.clientY - rect.top) * (canvas.height / rect.height) / DPR;
+  const i = Math.floor((x / width) * gridSize);
+  const j = Math.floor((y / height) * gridSize);
+  if(i>=0 && i<gridSize && j>=0 && j<gridSize){
+    const k = idx(i,j);
+    grid[k] = grid[k] ? 0 : 1;
+    if(grid[k]) particles.set(i+','+j, new Particle(i+0.5,j+0.5));
+    else particles.delete(i+','+j);
+    draw();
+  }
+});
+
+/* -------------------------
+   Init: allocate & start
+   ------------------------- */
+function init(){
+  allocGrid(gridSize);
+  randomizeGrid(density);
+  resizeCanvas();
+  // seed initial solar events
+  solarEvents = [];
+  for(let i=0;i<3;i++) if(Math.random()<0.6) solarEvents.push(new SolarWind());
+  draw();
+}
+init();
+
+/* helper clamp (already used above) */
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+</script>
 </body>
 </html>
