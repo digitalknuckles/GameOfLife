@@ -61,6 +61,8 @@
       <div class="row"><label>Particle size</label><input id="pSize" type="range" min="2" max="20" value="6"><input id="pSizeNum" type="number" min="2" max="20" value="6"></div>
       <div class="row"><label>FPS (visual)</label><input id="fps" type="range" min="5" max="60" value="30"><input id="fpsNum" type="number" min="5" max="60" value="30"></div>
 
+      <div class="row"><label>Repel radius</label><input id="repelRadius" type="range" min="1" max="80" value="8"><input id="repelRadiusNum" type="number" min="1" max="200" value="8"></div>
+
       <div class="row"><label>Color mode</label>
         <select id="colormode">
           <option value="psy">Chaos (psychedelic)</option>
@@ -85,7 +87,7 @@
 
       <div class="footer">
         <div><span class="pill">Rules:</span> Conway's Game of Life on a torus + flock behavior + solar-wind events + boost zones (D-2 Psychedelic).</div>
-        <div class="small">Tap or swipe canvas to repel cells. Use Boost Zones and Chaos Mode to create emergent behavior. Works on mobile & in iframes.</div>
+        <div class="small">Tap or swipe canvas to repel & destroy cells within the radius. Boost Zones and Chaos Mode create emergent behavior. Works on mobile & in iframes.</div>
       </div>
     </div>
 
@@ -93,18 +95,7 @@
   </div>
 
 <script>
-/* ===============
-  Full merged D-2 file
-  Features:
-   - DPR-aware canvas
-   - Conway CA (toroidal)
-   - Particles representing live cells
-   - SolarWind events (cosmic push/mutations)
-   - Toggleable Boost Zones with overlays & survival boosts
-   - Touch/Swipe repel (radial transparent boundary)
-   - Surprise #1: psychedelic rave strobe + trails
-   - Placeholder background image (see placeholderBackground variable)
-  =============== */
+/* =============== Full merged D-2: finished & repaired =============== */
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d', { alpha: true });
@@ -132,7 +123,11 @@ let width = 800, height = 800, cellW = 8;
 let solarEvents = [], nextEventTimer = 0;
 let noiseTime = 0;
 let surpriseTimer = 0;
-let placeholderBackground = null; // set to a URL string to show an image background
+let placeholderBackground = null; // set a URL string to show an image background
+
+let boostZones = []; // will be initialized
+let touchRepelRadius = Math.max(2, Math.floor(gridSize * 0.06)); // cells
+let touchRepelStrength = 1.2;
 
 // ---------- DPR-aware resize ----------
 function resizeCanvas(){
@@ -202,8 +197,7 @@ class SolarWind {
   alive(){ return this.life>0; }
 }
 
-// ---------- Boost zones (resource/mutation zones) ----------
-let boostZones = []; // array of {x,y,radius,strength,hue,active}
+// ---------- Boost zones ----------
 function initBoostZones(){
   boostZones = [];
   const count = Math.max(2, Math.round(gridSize/28));
@@ -218,8 +212,9 @@ function initBoostZones(){
     });
   }
 }
+function initZones(){ initBoostZones(); }
 
-// ---------- Grid helpers (flat arrays) ----------
+// ---------- Grid helpers ----------
 function idx(i,j){ return i + j*gridSize; }
 function allocGrid(n){
   gridSize = n;
@@ -230,7 +225,6 @@ function randomizeGrid(d){
   for(let j=0;j<gridSize;j++){
     for(let i=0;i<gridSize;i++) grid[idx(i,j)] = (Math.random() < d) ? 1 : 0;
   }
-  // particles rebuild
   particles.clear();
   for(let j=0;j<gridSize;j++){
     for(let i=0;i<gridSize;i++){
@@ -243,7 +237,7 @@ function clearGrid(){
   particles.clear();
 }
 
-// ---------- Particle class ----------
+// ---------- Particle ----------
 class Particle {
   constructor(x,y){
     this.x = x; this.y = y;
@@ -299,7 +293,6 @@ class Particle {
       for(const bz of boostZones){
         if(!bz.active) continue;
         let dx = this.x - bz.x; let dy = this.y - bz.y;
-        // wrap shortest
         dx = wrapDistance(dx, gridSize); dy = wrapDistance(dy, gridSize);
         const d2 = dx*dx + dy*dy;
         if(d2 < bz.radius*bz.radius){
@@ -317,8 +310,6 @@ class Particle {
     this.age++;
   }
 }
-
-// helper wrap shortest distance
 function wrapDistance(d, N){
   if(Math.abs(d) <= N/2) return d;
   if(d > 0) return d - N;
@@ -357,7 +348,7 @@ function conwayStep(){
     if(!solarEvents[k].alive()) solarEvents.splice(k,1);
   }
 
-  // compute new grid with boosts
+  // compute new grid with boosts and chaos
   for(let j=0;j<N;j++){
     for(let i=0;i<N;i++){
       const n = neighbors[idx(i,j)];
@@ -415,9 +406,9 @@ function draw(){
 
   // optional image background (placeholder)
   if(placeholderBackground){
-    // image will be drawn with subtle tint
     if(!window._bgImg){
       window._bgImg = new Image();
+      window._bgImg.crossOrigin = 'anonymous';
       window._bgImg.src = placeholderBackground;
       window._bgImg.onload = () => draw();
     } else if(window._bgImg.complete){
@@ -427,7 +418,6 @@ function draw(){
       ctx.restore();
     }
   } else {
-    // subtle procedural deep-space fill so we always see something
     ctx.fillStyle = '#05040a';
     ctx.fillRect(0,0,w,h);
   }
@@ -456,7 +446,6 @@ function draw(){
         }
       }
       n = clamp(n + glow*0.8, 0, 1);
-      // palette (psychedelic)
       let hueBase = (noiseTime*60 + (n*360*1.2)) % 360;
       if(colorMode === 'hue') hueBase = (n*360) % 360;
       else if(colorMode === 'mono') hueBase = 210;
@@ -513,10 +502,8 @@ function draw(){
 
   // draw particles (cells)
   const cellWpx = w / gridSize;
-  // optional trail: draw with slight globalAlpha + composite to create glow trail
   ctx.save();
   if(surpriseTimer > 0){
-    // stronger trail / additive while surprise mode active
     ctx.globalCompositeOperation = 'lighter';
     ctx.globalAlpha = 0.96;
   } else {
@@ -635,7 +622,6 @@ function loop(ts){
     // surprise mode: occasional rave strobe with intensified mutation
     if(chaosOn && Math.random() < 0.0009 * chaosIntensity) {
       surpriseTimer = 40 + Math.floor(Math.random()*80);
-      // small global mutation spike
       for(let n=0;n<6 + Math.floor(chaosIntensity*18); n++){
         const i = Math.floor(Math.random()*gridSize), j = Math.floor(Math.random()*gridSize);
         grid[idx(i,j)] = grid[idx(i,j)] ? 0 : 1;
@@ -651,13 +637,8 @@ function loop(ts){
 
     stepSimulation();
   }
-  // optional visual strobe effect during surprise
   if(surpriseTimer > 0){
-    // slightly modulate fps/visual
-    const prev = ctx.globalAlpha;
-    ctx.globalAlpha = 1;
     draw();
-    ctx.globalAlpha = prev;
   } else {
     draw();
   }
@@ -709,7 +690,7 @@ id('exportFrames').addEventListener('click', ()=> {
 });
 
 // ranges synchronization
-syncRangeWithNumber('gridSize','gridSizeNum', v => { gridSize = Math.max(30, Math.round(v)); allocGrid(gridSize); randomizeGrid(density); resizeCanvas(); initZones(); draw(); });
+syncRangeWithNumber('gridSize','gridSizeNum', v => { gridSize = Math.max(30, Math.round(v)); allocGrid(gridSize); randomizeGrid(density); resizeCanvas(); initZones(); touchRepelRadius = Math.max(2, Math.floor(gridSize * 0.06)); id('repelRadius').value = touchRepelRadius; id('repelRadiusNum').value = touchRepelRadius; draw(); });
 syncRangeWithNumber('density','densityNum', v => { density = parseFloat(v); });
 syncRangeWithNumber('noise','noiseNum', v => { noise = parseFloat(v); });
 syncRangeWithNumber('radius','radiusNum', v => { radius = Math.max(1, Math.round(v)); });
@@ -717,6 +698,9 @@ syncRangeWithNumber('maxSpeed','maxSpeedNum', v => { maxSpeed = parseFloat(v); }
 syncRangeWithNumber('pSize','pSizeNum', v => { baseParticleSize = parseFloat(v); });
 syncRangeWithNumber('fps','fpsNum', v => { fps = Math.max(5, Math.round(v)); });
 syncRangeWithNumber('chaosIntensity','chaosIntensityNum', v => { chaosIntensity = parseFloat(v); });
+
+// repel radius sync
+syncRangeWithNumber('repelRadius','repelRadiusNum', v => { touchRepelRadius = Math.max(1, Math.round(v)); });
 
 // selects
 id('colormode').addEventListener('change', e => { colorMode = e.target.value; draw(); });
@@ -731,95 +715,81 @@ legend.addEventListener('click', () => {
   draw();
 });
 
-// canvas interactions:
-// - click toggles cell
-// - touch / swipe repels (radial repel) — implements transparent boundary: cells near touch are pushed away and temporarily prevented from being born inside radius
-let lastTouch = null;
-let touchRepelRadius = Math.max(2, Math.floor(gridSize * 0.06)); // in cells
-let touchRepelStrength = 1.2;
-
+// ---------- Pointer / touch interactivity ----------
+// Convert client coordinates to grid/pixel coords
 function screenToGridCoords(clientX, clientY){
   const rect = canvas.getBoundingClientRect();
   const x = (clientX - rect.left) * (canvas.width / rect.width) / DPR;
   const y = (clientY - rect.top) * (canvas.height / rect.height) / DPR;
-  const gx = Math.floor((x / width) * gridSize);
-  const gy = Math.floor((y / height) * gridSize);
-  return {gx, gy, px: x, py: y};
+  const gx = (x / width) * gridSize;
+  const gy = (y / height) * gridSize;
+  return { gx, gy, px: x, py: y };
 }
 
-canvas.addEventListener('click', (ev) => {
-  const {gx, gy} = screenToGridCoords(ev.clientX, ev.clientY);
-  if(gx>=0 && gx<gridSize && gy>=0 && gy<gridSize){
-    const k = idx(gx,gy);
-    grid[k] = grid[k] ? 0 : 1;
-    if(grid[k]) particles.set(gx+','+gy, new Particle(gx+0.5, gy+0.5));
-    else particles.delete(gx+','+gy);
-    draw();
-  }
-});
-
-// touchstart/touchmove handlers for repel
-let isPointerDown = false;
-let lastPointer = null;
-
-function applyRepel(px, py, strength=1.0){
-  // px/py in pixels (canvas coords)
-  const rect = canvas.getBoundingClientRect();
-  const gx = (px / rect.width) * gridSize;
-  const gy = (py / rect.height) * gridSize;
+// repel function uses client coords
+function applyRepelAtClient(clientX, clientY, strength=1.0){
+  const { gx, gy } = screenToGridCoords(clientX, clientY);
   const rCells = touchRepelRadius;
-  // push particles away and temporarily mark area to reduce births
-  for(let j = Math.floor(gy - rCells) ; j <= Math.ceil(gy + rCells); j++){
-    for(let i = Math.floor(gx - rCells) ; i <= Math.ceil(gx + rCells); i++){
-      const ii = (i + gridSize) % gridSize;
-      const jj = (j + gridSize) % gridSize;
+  for(let j = Math.floor(gy - rCells); j <= Math.ceil(gy + rCells); j++){
+    for(let i = Math.floor(gx - rCells); i <= Math.ceil(gx + rCells); i++){
+      const ii = ((i % gridSize) + gridSize) % gridSize;
+      const jj = ((j % gridSize) + gridSize) % gridSize;
+      // compute wrapped shortest distance between (ii,jj) and (gx,gy)
       const dx = wrapDistance(ii - gx, gridSize);
       const dy = wrapDistance(jj - gy, gridSize);
       const d2 = dx*dx + dy*dy;
       if(d2 <= rCells*rCells){
         const dist = Math.sqrt(d2) + 1e-6;
         const push = (1 - (dist / rCells)) * (0.6 * strength);
-        // push the particle velocity if present
         const key = ii + ',' + jj;
         if(particles.has(key)){
           const p = particles.get(key);
-          // direction away from touch center
           let dirx = (p.x - gx), diry = (p.y - gy);
           const mag = Math.hypot(dirx, diry) + 1e-6;
           dirx /= mag; diry /= mag;
-          p.vx += dirx * 0.15 * push;
-          p.vy += diry * 0.15 * push;
+          p.vx += dirx * 0.18 * push;
+          p.vy += diry * 0.18 * push;
         }
-        // reduce chance of immediate birth: kill the cell with some chance
-        if(Math.random() < 0.35 * push) grid[idx(ii,jj)] = 0;
+        // kill cells with some probability proportional to push (annihilate)
+        if(Math.random() < 0.45 * push){
+          grid[idx(ii,jj)] = 0;
+        }
       }
     }
   }
 }
 
+let isPointerDown = false;
+let lastPointer = null;
+
 canvas.addEventListener('pointerdown', (ev) => {
   isPointerDown = true;
   lastPointer = {x: ev.clientX, y: ev.clientY};
-  applyRepel(ev.clientX - canvas.getBoundingClientRect().left, ev.clientY - canvas.getBoundingClientRect().top, 1.2);
+  applyRepelAtClient(ev.clientX, ev.clientY, touchRepelStrength);
 });
 canvas.addEventListener('pointermove', (ev) => {
   if(!isPointerDown) return;
   const dx = ev.clientX - lastPointer.x, dy = ev.clientY - lastPointer.y;
   const speed = Math.hypot(dx,dy);
-  const strength = clamp(0.6 + speed*0.05, 0.6, 3.0);
-  applyRepel(ev.clientX - canvas.getBoundingClientRect().left, ev.clientY - canvas.getBoundingClientRect().top, strength);
+  const strength = clamp(0.6 + speed*0.05, 0.6, 3.2);
+  applyRepelAtClient(ev.clientX, ev.clientY, strength);
   lastPointer = {x: ev.clientX, y: ev.clientY};
 });
 canvas.addEventListener('pointerup', ()=> { isPointerDown = false; lastPointer = null; });
 canvas.addEventListener('pointercancel', ()=> { isPointerDown = false; lastPointer = null; });
 
-// ---------- Boost zone helpers ----------
-function initZones(){
-  initBoostZones();
-}
-function toggleZone(index){
-  if(boostZones[index]) boostZones[index].active = !boostZones[index].active;
-}
+// clicking toggles cell (single click)
+canvas.addEventListener('click', (ev) => {
+  const { gx, gy } = screenToGridCoords(ev.clientX, ev.clientY);
+  const i = Math.floor(gx), j = Math.floor(gy);
+  if(i>=0 && i<gridSize && j>=0 && j<gridSize){
+    const k = idx(i,j);
+    grid[k] = grid[k] ? 0 : 1;
+    if(grid[k]) particles.set(i+','+j, new Particle(i+0.5, j+0.5));
+    else particles.delete(i+','+j);
+    draw();
+  }
+});
 
 // ---------- Init & start ----------
 function init(){
@@ -830,7 +800,9 @@ function init(){
   solarEvents = [];
   for(let i=0;i<3;i++) if(Math.random() < 0.6) solarEvents.push(new SolarWind());
   resizeCanvas();
-  // ensure one draw showing particles
+  touchRepelRadius = Math.max(2, Math.floor(gridSize * 0.06));
+  id('repelRadius').value = touchRepelRadius;
+  id('repelRadiusNum').value = touchRepelRadius;
   draw();
 }
 init();
