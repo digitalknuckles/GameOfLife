@@ -95,7 +95,7 @@
   </div>
 
 <script>
-/* =============== Full merged D-2: finished & repaired =============== */
+/* =============== Full merged D-2: finished & repaired + dead-zone trail =============== */
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d', { alpha: true });
@@ -118,6 +118,7 @@ let zonesOn = true; // boost zones toggle
 
 let running = false, lastTime = 0, accum = 0;
 let grid = null, gridNext = null;
+let deadCooldown = null; // milliseconds remaining where cell cannot be born
 let particles = new Map();
 let width = 800, height = 800, cellW = 8;
 let solarEvents = [], nextEventTimer = 0;
@@ -126,8 +127,9 @@ let surpriseTimer = 0;
 let placeholderBackground = null; // set a URL string to show an image background
 
 let boostZones = []; // will be initialized
-let touchRepelRadius = Math.max(2, Math.floor(gridSize * 0.06)); // cells
+let touchRepelRadius = Math.max(2, Math.floor(gridSize * 0.06)); // in cells
 let touchRepelStrength = 1.2;
+const DEAD_COOLDOWN_MS = 2000; // 2 seconds cooldown for dead-zone trail
 
 // ---------- DPR-aware resize ----------
 function resizeCanvas(){
@@ -220,11 +222,14 @@ function allocGrid(n){
   gridSize = n;
   grid = new Uint8Array(n * n);
   gridNext = new Uint8Array(n * n);
+  deadCooldown = new Float32Array(n * n); // ms remaining
 }
 function randomizeGrid(d){
   for(let j=0;j<gridSize;j++){
     for(let i=0;i<gridSize;i++) grid[idx(i,j)] = (Math.random() < d) ? 1 : 0;
   }
+  // reset cooldowns
+  deadCooldown.fill(0);
   particles.clear();
   for(let j=0;j<gridSize;j++){
     for(let i=0;i<gridSize;i++){
@@ -234,6 +239,7 @@ function randomizeGrid(d){
 }
 function clearGrid(){
   grid.fill(0);
+  deadCooldown.fill(0);
   particles.clear();
 }
 
@@ -316,8 +322,8 @@ function wrapDistance(d, N){
   return d + N;
 }
 
-// ---------- Conway step with chaos & zones ----------
-function conwayStep(){
+// ---------- Conway step with chaos & zones (checks deadCooldown) ----------
+function conwayStep(deltaMs=16){
   const N = gridSize;
   const neighbors = new Uint8Array(N * N);
   for(let j=0;j<N;j++){
@@ -333,6 +339,11 @@ function conwayStep(){
         }
       }
     }
+  }
+
+  // step cooldown timers (ms)
+  for(let k=0;k < deadCooldown.length; k++){
+    if(deadCooldown[k] > 0) deadCooldown[k] = Math.max(0, deadCooldown[k] - deltaMs);
   }
 
   // spawn solar events occasionally
@@ -389,6 +400,11 @@ function conwayStep(){
             if(Math.random() < 0.003 * influence) val = val ? 0 : 1;
           }
         }
+      }
+
+      // enforce dead-zone cooldown: if cell is within deadCooldown, force dead
+      if(deadCooldown[idx(i,j)] > 0){
+        val = 0;
       }
 
       gridNext[idx(i,j)] = val;
@@ -518,18 +534,27 @@ function draw(){
     let alpha = pval.aliveCell ? 1 : Math.max(0.08, pval.fade * 0.6);
     let size = baseParticleSize + Math.min(40, age * 0.18);
     if(colorMode === 'psy'){
-      const h = ((age * 8) + (noiseTime*220)) % 360;
+      // psychedelic neon spectrum — hue shifts with age + noiseTime
+      const hue = ((age * 8) + (noiseTime*220)) % 360;
       const light = 50 + (Math.sin(age*0.08 + noiseTime)*8);
-      ctx.fillStyle = `hsla(${h}, 92%, ${light}%, ${alpha})`;
+      ctx.fillStyle = `hsla(${hue}, 96%, ${light}%, ${alpha})`;
+      // outer neon glow
+      ctx.shadowBlur = 10 + (Math.min(24, size*0.6));
+      ctx.shadowColor = `hsla(${hue}, 90%, ${light - 6}%, ${Math.max(0.18, alpha*0.6)})`;
     } else if(colorMode === 'hue'){
-      const h = (age * 6) % 360;
-      ctx.fillStyle = `hsla(${h}, 76%, 60%, ${alpha})`;
+      const hue = (age * 6) % 360;
+      ctx.fillStyle = `hsla(${hue}, 76%, 60%, ${alpha})`;
+      ctx.shadowBlur = 6;
+      ctx.shadowColor = `hsla(${hue}, 70%, 50%, ${Math.max(0.08, alpha*0.4)})`;
     } else {
       ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+      ctx.shadowBlur = 0;
     }
     ctx.beginPath();
     ctx.arc(sx, sy, Math.max(0.6, size * (cellWpx/14)), 0, Math.PI*2);
     ctx.fill();
+    // clear shadow for next
+    ctx.shadowBlur = 0;
   }
 
   ctx.restore();
@@ -571,15 +596,16 @@ function hslToRgb(h, s, l){
 }
 
 // ---------- Simulation step & particles update ----------
-function stepSimulation(){
-  conwayStep();
+function stepSimulation(deltaMs=16){
+  // pass delta to conway step for cooldown ticking
+  conwayStep(deltaMs);
 
   const N = gridSize;
   const newParticles = new Map();
   for(const [key,p] of particles.entries()){
     const [iStr,jStr] = key.split(',');
     const i = parseInt(iStr), j = parseInt(jStr);
-    if(grid[idx(i,j)]){
+    if(grid[idx(i,j)]){ // still alive
       p.aliveCell = true; p.fade = 1; p.fadeCount = 0;
       p.step();
       const ni = (Math.floor(p.x) + N) % N, nj = (Math.floor(p.y) + N) % N;
@@ -600,10 +626,11 @@ function stepSimulation(){
     }
   }
 
-  // ensure births spawn particles
+  // ensure births spawn particles, but avoid deadCooldown spots
   for(let j=0;j<N;j++){
     for(let i=0;i<N;i++){
-      if(grid[idx(i,j)] && !newParticles.has(i+','+j)){
+      const k = idx(i,j);
+      if(grid[k] && !newParticles.has(i+','+j) && deadCooldown[k] <= 0){
         newParticles.set(i+','+j, new Particle(i+0.5 + (Math.random()*0.4-0.2), j+0.5 + (Math.random()*0.4-0.2)));
       }
     }
@@ -635,13 +662,10 @@ function loop(ts){
       grid[idx(i,j)] = grid[idx(i,j)] ? 0 : 1;
     }
 
-    stepSimulation();
+    // step sim once, passing ms (to decrement deadCooldown)
+    stepSimulation(interval);
   }
-  if(surpriseTimer > 0){
-    draw();
-  } else {
-    draw();
-  }
+  draw();
   if(running) requestAnimationFrame(loop);
 }
 
@@ -668,7 +692,7 @@ id('start').addEventListener('click', ()=> {
   id('start').textContent = running ? 'Pause' : 'Start';
   if(running){ lastTime = 0; requestAnimationFrame(loop); }
 });
-id('step').addEventListener('click', ()=> { stepSimulation(); draw(); });
+id('step').addEventListener('click', ()=> { stepSimulation(1000 / fps); draw(); });
 id('randomize').addEventListener('click', ()=> { randomizeGrid(density); draw(); });
 id('clear').addEventListener('click', ()=> { clearGrid(); draw(); });
 
@@ -682,15 +706,26 @@ id('download').addEventListener('click', ()=> {
 id('exportFrames').addEventListener('click', ()=> {
   const backupGrid = grid.slice();
   const backupParticles = new Map(particles);
-  for(let f=0; f<60; f++) stepSimulation();
+  const backupCooldown = deadCooldown.slice();
+  for(let f=0; f<60; f++) stepSimulation(1000 / fps);
   const link = document.createElement('a'); link.href = canvas.toDataURL('image/png'); link.target = '_blank';
   window.open(link.href, '_blank');
-  grid.set(backupGrid); particles = backupParticles;
+  grid.set(backupGrid); particles = backupParticles; deadCooldown.set(backupCooldown);
   draw();
 });
 
 // ranges synchronization
-syncRangeWithNumber('gridSize','gridSizeNum', v => { gridSize = Math.max(30, Math.round(v)); allocGrid(gridSize); randomizeGrid(density); resizeCanvas(); initZones(); touchRepelRadius = Math.max(2, Math.floor(gridSize * 0.06)); id('repelRadius').value = touchRepelRadius; id('repelRadiusNum').value = touchRepelRadius; draw(); });
+syncRangeWithNumber('gridSize','gridSizeNum', v => {
+  gridSize = Math.max(30, Math.round(v));
+  allocGrid(gridSize);
+  randomizeGrid(density);
+  resizeCanvas();
+  initZones();
+  touchRepelRadius = Math.max(2, Math.floor(gridSize * 0.06));
+  id('repelRadius').value = touchRepelRadius;
+  id('repelRadiusNum').value = touchRepelRadius;
+  draw();
+});
 syncRangeWithNumber('density','densityNum', v => { density = parseFloat(v); });
 syncRangeWithNumber('noise','noiseNum', v => { noise = parseFloat(v); });
 syncRangeWithNumber('radius','radiusNum', v => { radius = Math.max(1, Math.round(v)); });
@@ -726,8 +761,8 @@ function screenToGridCoords(clientX, clientY){
   return { gx, gy, px: x, py: y };
 }
 
-// repel function uses client coords
-function applyRepelAtClient(clientX, clientY, strength=1.0){
+// repel + carve (dead zone) function uses client coords
+function applyRepelAndCarveAtClient(clientX, clientY, strength=1.0){
   const { gx, gy } = screenToGridCoords(clientX, clientY);
   const rCells = touchRepelRadius;
   for(let j = Math.floor(gy - rCells); j <= Math.ceil(gy + rCells); j++){
@@ -742,6 +777,7 @@ function applyRepelAtClient(clientX, clientY, strength=1.0){
         const dist = Math.sqrt(d2) + 1e-6;
         const push = (1 - (dist / rCells)) * (0.6 * strength);
         const key = ii + ',' + jj;
+        // push any nearby particle away
         if(particles.has(key)){
           const p = particles.get(key);
           let dirx = (p.x - gx), diry = (p.y - gy);
@@ -750,10 +786,12 @@ function applyRepelAtClient(clientX, clientY, strength=1.0){
           p.vx += dirx * 0.18 * push;
           p.vy += diry * 0.18 * push;
         }
-        // kill cells with some probability proportional to push (annihilate)
+        // kill cells with some probability proportional to push (annihilate) AND set dead cooldown
         if(Math.random() < 0.45 * push){
           grid[idx(ii,jj)] = 0;
         }
+        // mark dead cooldown unconditionally (carving the trail). Use stronger carve for stronger pushes.
+        deadCooldown[idx(ii,jj)] = Math.max(deadCooldown[idx(ii,jj)], DEAD_COOLDOWN_MS * (0.8 + 0.4 * strength));
       }
     }
   }
@@ -763,28 +801,32 @@ let isPointerDown = false;
 let lastPointer = null;
 
 canvas.addEventListener('pointerdown', (ev) => {
+  // ensure pointer events target the canvas (capture)
+  ev.preventDefault();
   isPointerDown = true;
   lastPointer = {x: ev.clientX, y: ev.clientY};
-  applyRepelAtClient(ev.clientX, ev.clientY, touchRepelStrength);
+  applyRepelAndCarveAtClient(ev.clientX, ev.clientY, touchRepelStrength);
 });
 canvas.addEventListener('pointermove', (ev) => {
   if(!isPointerDown) return;
   const dx = ev.clientX - lastPointer.x, dy = ev.clientY - lastPointer.y;
   const speed = Math.hypot(dx,dy);
   const strength = clamp(0.6 + speed*0.05, 0.6, 3.2);
-  applyRepelAtClient(ev.clientX, ev.clientY, strength);
+  applyRepelAndCarveAtClient(ev.clientX, ev.clientY, strength);
   lastPointer = {x: ev.clientX, y: ev.clientY};
 });
 canvas.addEventListener('pointerup', ()=> { isPointerDown = false; lastPointer = null; });
 canvas.addEventListener('pointercancel', ()=> { isPointerDown = false; lastPointer = null; });
 
-// clicking toggles cell (single click)
+// clicking toggles cell (single click) — also carve small cooldown on right-click? just simple toggle here
 canvas.addEventListener('click', (ev) => {
   const { gx, gy } = screenToGridCoords(ev.clientX, ev.clientY);
   const i = Math.floor(gx), j = Math.floor(gy);
   if(i>=0 && i<gridSize && j>=0 && j<gridSize){
     const k = idx(i,j);
     grid[k] = grid[k] ? 0 : 1;
+    // when toggled off, set cooldown so it doesn't instantly regrow
+    if(!grid[k]) deadCooldown[k] = DEAD_COOLDOWN_MS;
     if(grid[k]) particles.set(i+','+j, new Particle(i+0.5, j+0.5));
     else particles.delete(i+','+j);
     draw();
@@ -813,3 +855,4 @@ function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
 </script>
 </body>
 </html>
+
